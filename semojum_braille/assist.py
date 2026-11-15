@@ -416,7 +416,8 @@ def _fold_blocks(blocks: list, opts: Options) -> list:
     블록 `breaks`(그 블록 `text` 기준, 응답 `contents[0]` 의 값 그대로)는 이은 문자열 기준으로 옮긴 뒤 줄마다
     그 줄의 시작 오프셋을 뺀다(sidecar.md §5 규칙 5). 줄 끝 · 줄 머리 자리는 안 쓴다(그 셀 앞에서 끊을 일이 없다).
     가운데 놓기(`heading_level` 1)는 그 줄이 시작하는 블록의 값을 쓴다.
-    반환은 `(줄, 블록 align)` 이다. 정렬은 면을 나눈 뒤(점자 면 번호를 채운 뒤) 놓는다.
+    반환은 `(줄, 그 줄 정렬)` 이다. 정렬은 면을 나눈 뒤(점자 면 번호를 채운 뒤) 놓는다.
+    줄 정렬은 `build_pages` 가 `carry_aligns` 로 이어 붙인 값(`_line_aligns`)이다(#125).
     """
     # 블록은 서로 다른 요소다. 끝 개행 없이 이으면 다음 블록 첫 줄과 한 줄로 붙는다(#40 · braille-assist#16,
     # 웹에서 저장한 쪽의 BE 다운로드). 빈 블록은 줄을 더하지 않고, 아래에서 토막 끝 개행을 종결자로 떼므로
@@ -425,14 +426,15 @@ def _fold_blocks(blocks: list, opts: Options) -> list:
     seg = "".join(texts)
     if not seg:
         return []        # 내용이 아예 없는 토막(쪽바꿈 표식이 잇달은 자리)은 줄을 안 만든다
-    starts, centers, aligns, gbreaks, acc = [], [], [], [], 0
+    starts, centers, line_al, gbreaks, acc = [], [], [], [], 0
     for b, t in zip(blocks, texts):
         starts.append(acc)
         centers.append(int(b.get("heading_level") or 0) == 1)
-        al = b.get("align") or ""
-        if al and al not in ALIGNS:
-            raise ValueError(f"align은 left|center|right: {al!r}")
-        aligns.append(al)
+        # 줄마다 정렬. `build_pages` 가 이어진 값을 미리 채운다. 직접 부른 쪽은 옛 블록 `align` 을 그 블록 줄 전체에.
+        eff = b.get("_line_aligns")
+        if eff is None:
+            eff = [_check_align(b.get("align"))] * t.count("\n")
+        line_al += eff
         gbreaks += [acc + x for x in (b.get("breaks") or [])]
         acc += len(t)
     # 통 문자열의 **끝 개행은 마지막 줄을 끝내는 종결자**이지 빈 줄이 아니다.
@@ -443,12 +445,64 @@ def _fold_blocks(blocks: list, opts: Options) -> list:
     if seg.endswith("\n"):
         seg = seg[:-1]
     out, base = [], 0
-    for logical in seg.split("\n"):
+    for n, logical in enumerate(seg.split("\n")):
         k = bisect_right(starts, base) - 1
         lb = [g - base for g in gbreaks if base < g < base + len(logical)]
-        out += [(w, aligns[k]) for w in wrap(logical, opts.cols, opts.wrap, lb, centers[k])]
+        al = line_al[n] if n < len(line_al) else ""
+        out += [(w, al) for w in wrap(logical, opts.cols, opts.wrap, lb, centers[k])]
         base += len(logical) + 1
     return out
+
+
+def _check_align(al) -> str:
+    al = al or ""
+    if al and al not in ALIGNS:
+        raise ValueError(f"align은 left|center|right: {al!r}")
+    return al
+
+
+def _own_aligns(block: dict) -> list:
+    """블록 논리 줄마다 **그 줄에 놓인** 정렬 태그("" = 없음). `_fold_blocks` 와 같은 줄 나눔이다.
+
+    `line_alignments` 는 `translate` 응답 `line_alignment` 그대로다(그 블록 `text` 기준 점자 좌표 + `align`).
+    행의 `braille_start` 가 든 줄에 태그를 놓는다. 이 칸이 없으면 옛 칸 `align` 을 첫 줄에 놓인 태그로 읽는다.
+    """
+    t = block.get("text", "")
+    if not t:
+        return []
+    if not t.endswith("\n"):
+        t += "\n"
+    own = [""] * t.count("\n")
+    rows = block.get("line_alignments")
+    if rows:
+        starts, acc = [], 0
+        for ln in t[:-1].split("\n"):
+            starts.append(acc)
+            acc += len(ln) + 1
+        for r in rows:
+            al = _check_align(r.get("align"))
+            if al:
+                own[max(0, bisect_right(starts, int(r.get("braille_start") or 0)) - 1)] = al
+    elif block.get("align"):
+        own[0] = _check_align(block["align"])
+    return own
+
+
+def carry_aligns(blocks: list, state: str = "") -> tuple[list, str]:
+    """정렬을 **다음 정렬 태그가 나올 때까지** 잇는다(#125, 대표 지시 2026-11-16 · 실로암브레일과 같다).
+
+    태그가 든 줄은 그 줄 전체가 그 정렬이고, 아래 줄 · 다음 블록 · 다음 원본 쪽으로 이어진다. 태그가 한 번도
+    안 나온 줄은 ""(받은 그대로, 들여쓰기 유지)다. 반환은 (블록마다 줄별 정렬 목록, 끝난 뒤 상태)다.
+    앱 조판(`compose_editor`)도 이 함수로 줄별 정렬을 얻으면 엔진 조판과 같아진다.
+    """
+    out = []
+    for b in blocks:
+        eff = []
+        for al in _own_aligns(b):
+            state = al or state
+            eff.append(state)
+        out.append(eff)
+    return out, state
 
 
 def _has_page_row(braille_page: int, on: str) -> bool:
@@ -647,6 +701,7 @@ def build_pages(
     # 원본 페이지 번호를 끄면 변경선은 ⠤만 남은 빈 줄이 된다 — 함께 끈다(결정 D).
     with_change = opts.show_change_line and opts.show_orig_page
     flat: list = []                       # (줄, 원본 쪽, 표지인가, 정렬)
+    align_state = ""                      # 정렬은 다음 정렬 태그까지 블록 · 원본 쪽을 넘어 이어진다(#125)
     for i, src in enumerate(sources):
         op = int(src["orig_page"])
         # ★ 표지 판정은 **순번**이다(2026-09-01 결정 C). 종전에는 `쪽 번호 <= cover_pages`로
@@ -667,7 +722,8 @@ def build_pages(
             elif t in RULE_TAGS:
                 cur.append({"text": rule_line(t, opts.cols)})   # 폭이 꼭 cols 라 안 접힌다
             else:
-                cur.append(b)
+                (eff,), align_state = carry_aligns([b], align_state)
+                cur.append({**b, "_line_aligns": eff})
         segs.append(cur)
         for seg in segs:
             if isinstance(seg, str):
@@ -903,7 +959,8 @@ def build_pages_from_job(job: dict) -> list:
         {
             "orig_page": int(src.get("orig_page", i + 1)),
             "blocks": [{"order": b.get("order", k), "text": b.get("braille", ""), "breaks": b.get("breaks") or [],
-                        "heading_level": b.get("heading_level") or 0, "align": b.get("align") or ""}
+                        "heading_level": b.get("heading_level") or 0, "align": b.get("align") or "",
+                        "line_alignments": b.get("line_alignments") or []}
                        for k, b in enumerate(src.get("blocks") or [])],
         }
         for i, src in enumerate(job.get("sources") or [])

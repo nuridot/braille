@@ -369,14 +369,29 @@ BUILD_TAGS = [
         sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": _P1}, {"order": 1, "text": "<!쪽바꿈>"},
                                              {"order": 2, "text": "<!장바꿈>"}, {"order": 3, "text": _P2}]}],
         opts=opt(rows=6, page_row_on="none")), ""),
-    ("정렬 셋 — 블록 align", dict(
+    ("정렬 셋 — 블록 align 은 다음 align 까지 이어진다", dict(
         sources=[{"orig_page": 1, "blocks": [
             {"order": 0, "text": "⠀⠀⠁⠃⠉⠀⠙\n", "align": "left"},
             {"order": 1, "text": "⠁⠃⠉⠙\n⠑⠋⠛\n", "align": "center"},
             {"order": 2, "text": "⠀⠀⠁⠃⠉\n", "align": "right"},
             {"order": 3, "text": "⠀⠀⠙⠑⠋\n"}]}],
         opts=opt(rows=6, page_row_on="none")),
-     "align 이 없으면 받은 그대로(들여쓰기 유지)"),
+     "align 이 없는 블록은 앞 정렬을 잇는다(#125, 실로암브레일과 같다)"),
+    ("정렬 — 태그가 한 번도 없으면 받은 그대로", dict(
+        sources=[{"orig_page": 1, "blocks": [
+            {"order": 0, "text": "⠀⠀⠁⠃⠉⠀⠙\n"}, {"order": 1, "text": "⠀⠀⠙⠑⠋\n"}]}],
+        opts=opt(rows=4, page_row_on="none")),
+     "들여쓰기 유지"),
+    ("정렬 — 줄마다(line_alignments) · 원본 쪽을 넘어 이어진다", dict(
+        sources=[{"orig_page": 1, "blocks": [
+                     {"order": 0, "text": "⠀⠀⠁⠃\n⠉⠙\n⠑⠋",
+                      "line_alignments": [{"braille_start": 5, "braille_end": 7, "align": "center"},
+                                          {"braille_start": 8, "braille_end": 10, "align": ""}]}]},
+                 {"orig_page": 2, "blocks": [{"order": 0, "text": "⠀⠀⠛⠓\n"},
+                                             {"order": 1, "text": "⠊⠚", "line_alignments": [
+                                                 {"braille_start": 0, "braille_end": 2, "align": "right"}]}]}],
+        opts=opt(rows=8, page_row_on="none", show_change_line=False)),
+     "태그 줄부터 다음 태그 앞까지 · 앞 줄은 받은 그대로"),
     ("정렬 — 접힌 줄은 조각마다", dict(
         sources=[{"orig_page": 1, "blocks": [{"order": 0, "text": "⠁⠃⠉⠙⠑⠀⠋⠛⠓⠊⠚\n", "align": "right"}]}],
         opts=opt(cols=8, rows=4, page_row_on="none")), ""),

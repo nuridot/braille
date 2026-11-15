@@ -262,15 +262,35 @@ public final class BrailleAssist {
         public final int[] breaks;
         /** 1이면 32칸을 넘어 접힌 줄을 가운데에 놓는다(1단계 제목). */
         public final int headingLevel;
-        /** 정렬 태그 셋(목록표) — left · center · right. 빈 값이면 받은 그대로. */
+        /** 정렬 태그 셋(목록표) — left · center · right. 그 블록 첫 줄에 놓인 태그로 읽고 다음 태그까지 이어진다(#125). */
         public final String align;
+        /** translate 응답 line_alignment 그대로(선택). 있으면 align 대신 줄마다 읽는다(#125). */
+        public final java.util.List<LineAlignment> lineAlignments;
+        /** buildPages 가 carryAligns 로 채운 줄별 정렬. null 이면 align 을 블록 줄 전체에. */
+        final String[] lineAligns;
 
-        public Block(int order, String text, int[] breaks, int headingLevel, String align) {
+        private Block(int order, String text, int[] breaks, int headingLevel, String align,
+                      java.util.List<LineAlignment> lineAlignments, String[] lineAligns) {
             this.order = order;
             this.text = text;
             this.breaks = breaks;
             this.headingLevel = headingLevel;
             this.align = align == null ? "" : align;
+            this.lineAlignments = lineAlignments;
+            this.lineAligns = lineAligns;
+        }
+
+        public Block(int order, String text, int[] breaks, int headingLevel, String align,
+                     java.util.List<LineAlignment> lineAlignments) {
+            this(order, text, breaks, headingLevel, align, lineAlignments, null);
+        }
+
+        public Block(int order, String text, int[] breaks, int headingLevel, String align) {
+            this(order, text, breaks, headingLevel, align, null, null);
+        }
+
+        Block withLineAligns(String[] eff) {
+            return new Block(order, text, breaks, headingLevel, align, lineAlignments, eff);
         }
 
         public Block(int order, String text, int[] breaks, int headingLevel) {
@@ -396,23 +416,86 @@ public final class BrailleAssist {
         return out;
     }
 
+    /** translate 응답 line_alignment 한 행. 그 블록 text 기준 점자 좌표(줄 첫 칸)와 그 줄에 놓인 태그다(#125). */
+    public static final class LineAlignment {
+        public final int brailleStart;
+        public final String align;
+
+        public LineAlignment(int brailleStart, String align) {
+            this.brailleStart = brailleStart;
+            this.align = align == null ? "" : align;
+        }
+    }
+
+    private static String checkAlign(String al) {
+        String v = al == null ? "" : al;
+        if (!v.isEmpty() && !ALIGNS.contains(v))
+            throw new IllegalArgumentException("align은 left|center|right: " + v);
+        return v;
+    }
+
+    /** 블록 논리 줄마다 그 줄에 놓인 정렬 태그("" = 없음). 근거는 python {@code _own_aligns}. */
+    static String[] ownAligns(Block b) {
+        String t = b.text == null ? "" : b.text;
+        if (t.isEmpty()) return new String[0];
+        if (!t.endsWith("\n")) t += "\n";
+        String[] lines = t.substring(0, t.length() - 1).split("\n", -1);
+        String[] own = new String[lines.length];
+        java.util.Arrays.fill(own, "");
+        if (b.lineAlignments != null && !b.lineAlignments.isEmpty()) {
+            int[] starts = new int[lines.length];
+            int acc = 0;
+            for (int i = 0; i < lines.length; i++) { starts[i] = acc; acc += lines[i].length() + 1; }
+            for (LineAlignment r : b.lineAlignments) {
+                String al = checkAlign(r.align);
+                if (al.isEmpty()) continue;
+                int k = 0;
+                while (k + 1 < starts.length && starts[k + 1] <= r.brailleStart) k++;
+                own[k] = al;
+            }
+        } else if (b.align != null && !b.align.isEmpty()) {
+            own[0] = checkAlign(b.align);
+        }
+        return own;
+    }
+
+    /** 정렬을 다음 정렬 태그가 나올 때까지 잇는다(#125). 근거는 python {@code carry_aligns}.
+     *  블록마다 줄별 정렬을 {@code out} 에 담고, 끝난 뒤 상태를 돌려준다. */
+    public static String carryAligns(java.util.List<Block> blocks, String state, java.util.List<String[]> out) {
+        String cur = state == null ? "" : state;
+        for (Block b : blocks) {
+            String[] own = ownAligns(b);
+            String[] eff = new String[own.length];
+            for (int i = 0; i < own.length; i++) {
+                if (!own[i].isEmpty()) cur = own[i];
+                eff[i] = cur;
+            }
+            out.add(eff);
+        }
+        return cur;
+    }
+
     /** 쪽바꿈 표식 사이 한 토막의 블록들을 이어 논리 줄로 나누고 opts.wrap 갈래로 접는다. 근거는 python {@code _fold_blocks}.
-     *  반환은 {줄, 블록 align} 이다. 정렬은 면을 나눈 뒤(점자 면 번호를 채운 뒤) 놓는다. */
+     *  반환은 {줄, 그 줄 정렬} 이다. 정렬은 면을 나눈 뒤(점자 면 번호를 채운 뒤) 놓는다.
+     *  줄 정렬은 buildPages 가 carryAligns 로 이어 붙인 값(lineAligns)이다(#125). */
     private static java.util.List<String[]> foldBlocks(java.util.List<Block> blocks, Options opts) {
         StringBuilder sb = new StringBuilder();
         java.util.List<Integer> starts = new java.util.ArrayList<>();
         java.util.List<Boolean> centers = new java.util.ArrayList<>();
-        java.util.List<String> aligns = new java.util.ArrayList<>();
+        java.util.List<String> lineAl = new java.util.ArrayList<>();
         java.util.List<Integer> gbreaks = new java.util.ArrayList<>();
         for (Block b : blocks) {
             starts.add(sb.length());
             centers.add(b.headingLevel == 1);
-            String al = b.align == null ? "" : b.align;
-            if (!al.isEmpty() && !ALIGNS.contains(al))
-                throw new IllegalArgumentException("align은 left|center|right: " + al);
-            aligns.add(al);
             if (b.breaks != null) for (int x : b.breaks) gbreaks.add(sb.length() + x);
             String t = b.text == null ? "" : b.text;
+            if (b.lineAligns != null) {
+                lineAl.addAll(java.util.Arrays.asList(b.lineAligns));
+            } else if (!t.isEmpty()) {
+                String al = checkAlign(b.align);
+                String tt = t.endsWith("\n") ? t : t + "\n";
+                for (int q = 0; q < tt.length(); q++) if (tt.charAt(q) == '\n') lineAl.add(al);
+            }
             sb.append(t);
             // 블록은 서로 다른 요소다. 끝 개행 없이 이으면 다음 블록 첫 줄과 한 줄로 붙는다(#40 · braille-assist#16,
             // 웹에서 저장한 쪽의 BE 다운로드). 빈 블록은 줄을 더하지 않고, 아래에서 토막 끝 개행을 종결자로 떼므로
@@ -426,14 +509,17 @@ public final class BrailleAssist {
         // split 이 그걸 빈 줄로 세어 원본 쪽마다 유령 빈 줄이 하나씩 생겼다.
         if (seg.endsWith("\n")) seg = seg.substring(0, seg.length() - 1);
         int base = 0;
+        int n = 0;
         for (String logical : seg.split("\n", -1)) {
+            String al = n < lineAl.size() ? lineAl.get(n) : "";
+            n++;
             int k = 0;
             while (k + 1 < starts.size() && starts.get(k + 1) <= base) k++;
             java.util.List<Integer> lb = new java.util.ArrayList<>();
             for (int g : gbreaks) if (base < g && g < base + logical.length()) lb.add(g - base);
             for (String w : wrap(logical, opts.cols, opts.wrap,
                                  lb.stream().mapToInt(Integer::intValue).toArray(), centers.get(k)))
-                out.add(new String[]{w, aligns.get(k)});
+                out.add(new String[]{w, al});
             base += logical.length() + 1;
         }
         return out;
@@ -599,6 +685,7 @@ public final class BrailleAssist {
         java.util.List<Integer> owner = new java.util.ArrayList<>();
         java.util.List<Boolean> coverOf = new java.util.ArrayList<>();
         java.util.List<String> alignOf = new java.util.ArrayList<>();
+        String alignState = "";        // 정렬은 다음 정렬 태그까지 블록 · 원본 쪽을 넘어 이어진다(#125)
         for (int i = 0; i < sources.size(); i++) {
             Source src = sources.get(i);
             // origPageStart가 있으면 표지 뒤 n번째 본문 원본 페이지를 다시 매긴다.
@@ -628,7 +715,9 @@ public final class BrailleAssist {
                 } else if (RULE_TAGS.containsKey(t)) {
                     cur.add(new Block(b.order, ruleLine(t, opts.cols)));   // 폭이 꼭 cols 라 안 접힌다
                 } else {
-                    cur.add(b);
+                    java.util.List<String[]> eff = new java.util.ArrayList<>();
+                    alignState = carryAligns(java.util.List.of(b), alignState, eff);
+                    cur.add(b.withLineAligns(eff.get(0)));
                 }
             }
             segs.add(cur);
@@ -769,16 +858,24 @@ public final class BrailleAssist {
         public final String text;
         /** 응답 TextElement.breaks 그대로(선택). null 이면 그 요소는 word 로 접는다. */
         public final int[] breaks;
-        /** 정렬 태그 셋(목록표) — left · center · right. 빈 값이면 받은 그대로. */
+        /** 정렬 태그 셋(목록표) — left · center · right. 그 요소 첫 줄에 놓인 태그로 읽고 다음 태그까지 이어진다(#125). */
         public final String align;
+        /** translate 응답 line_alignment 그대로(선택). 있으면 align 대신 줄마다 읽는다(#125). */
+        public final java.util.List<LineAlignment> lineAlignments;
 
-        public JobElement(String id, String type, int headingLevel, String text, int[] breaks, String align) {
+        public JobElement(String id, String type, int headingLevel, String text, int[] breaks, String align,
+                          java.util.List<LineAlignment> lineAlignments) {
             this.id = id;
             this.type = type;
             this.headingLevel = headingLevel;
             this.text = text == null ? "" : text;
             this.breaks = breaks;
             this.align = align == null ? "" : align;
+            this.lineAlignments = lineAlignments;
+        }
+
+        public JobElement(String id, String type, int headingLevel, String text, int[] breaks, String align) {
+            this(id, type, headingLevel, text, breaks, align, null);
         }
 
         public JobElement(String id, String type, int headingLevel, String text, int[] breaks) {
@@ -950,7 +1047,7 @@ public final class BrailleAssist {
             for (int k = 0; k < pg.elements.size(); k++) {
                 // 배열 순서가 읽기 순서다 — order를 만들어 붙여 그 순서를 유지한다.
                 JobElement el = pg.elements.get(k);
-                blocks.add(new Block(k, el.text, el.breaks, el.headingLevel, el.align));
+                blocks.add(new Block(k, el.text, el.breaks, el.headingLevel, el.align, el.lineAlignments));
             }
             sources.add(new Source(pg.origPageNo > 0 ? pg.origPageNo : i + 1, blocks));
         }

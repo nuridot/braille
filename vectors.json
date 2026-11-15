@@ -3381,7 +3381,7 @@
         ]
       },
       {
-        "name": "정렬 셋 — 블록 align",
+        "name": "정렬 셋 — 블록 align 은 다음 align 까지 이어진다",
         "args": {
           "sources": [
             {
@@ -3427,11 +3427,123 @@
             "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠃⠉⠙",
             "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠋⠛",
             "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠁⠃⠉",
-            "⠀⠀⠙⠑⠋",
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠙⠑⠋",
             ""
           ]
         ],
-        "source": "align 이 없으면 받은 그대로(들여쓰기 유지)"
+        "source": "align 이 없는 블록은 앞 정렬을 잇는다(#125, 실로암브레일과 같다)"
+      },
+      {
+        "name": "정렬 — 태그가 한 번도 없으면 받은 그대로",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁⠃⠉⠀⠙\n"
+                },
+                {
+                  "order": 1,
+                  "text": "⠀⠀⠙⠑⠋\n"
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 32,
+            "rows": 4,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": true,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁⠃⠉⠀⠙",
+            "⠀⠀⠙⠑⠋",
+            "",
+            ""
+          ]
+        ],
+        "source": "들여쓰기 유지"
+      },
+      {
+        "name": "정렬 — 줄마다(line_alignments) · 원본 쪽을 넘어 이어진다",
+        "args": {
+          "sources": [
+            {
+              "orig_page": 1,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠁⠃\n⠉⠙\n⠑⠋",
+                  "line_alignments": [
+                    {
+                      "braille_start": 5,
+                      "braille_end": 7,
+                      "align": "center"
+                    },
+                    {
+                      "braille_start": 8,
+                      "braille_end": 10,
+                      "align": ""
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "orig_page": 2,
+              "blocks": [
+                {
+                  "order": 0,
+                  "text": "⠀⠀⠛⠓\n"
+                },
+                {
+                  "order": 1,
+                  "text": "⠊⠚",
+                  "line_alignments": [
+                    {
+                      "braille_start": 0,
+                      "braille_end": 2,
+                      "align": "right"
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "opts": {
+            "cols": 32,
+            "rows": 8,
+            "show_orig_page": true,
+            "show_braille_page": true,
+            "page_row_on": "none",
+            "cover_pages": 0,
+            "orig_page_start": null,
+            "show_change_line": false,
+            "footer_align": "center"
+          }
+        },
+        "expect": [
+          [
+            "⠀⠀⠁⠃",
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠙",
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⠋",
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠛⠓",
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠊⠚",
+            "",
+            "",
+            ""
+          ]
+        ],
+        "source": "태그 줄부터 다음 태그 앞까지 · 앞 줄은 받은 그대로"
       },
       {
         "name": "정렬 — 접힌 줄은 조각마다",
@@ -3526,7 +3638,7 @@
           [
             "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠚",
             "⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠼⠁⠉",
-            "⠀⠀⠼⠁⠉",
+            "⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠼⠁⠉",
             "",
             "",
             ""

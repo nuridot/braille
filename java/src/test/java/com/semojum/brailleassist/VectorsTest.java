@@ -41,6 +41,16 @@ class VectorsTest {
     }
 
     /** breaks 칸 → int[]. 없거나 null 이면 null(그 블록은 word 로 접는다). */
+    /** 벡터 블록 `line_alignments`(#125) → LineAlignment 목록. 없으면 null. */
+    static List<BrailleAssist.LineAlignment> lineAligns(JsonNode n) {
+        if (n == null || n.isNull()) return null;
+        List<BrailleAssist.LineAlignment> out = new ArrayList<>();
+        for (JsonNode r : n) out.add(new BrailleAssist.LineAlignment(
+                r.has("braille_start") ? r.get("braille_start").asInt() : 0,
+                r.has("align") ? r.get("align").asText() : ""));
+        return out;
+    }
+
     private static int[] ints(JsonNode n) {
         if (n == null || n.isNull()) return null;
         int[] out = new int[n.size()];
@@ -96,7 +106,8 @@ class VectorsTest {
                         bs.add(new BrailleAssist.Block(b.get("order").asInt(), b.get("text").asText(),
                                 ints(b.get("breaks")),
                                 b.has("heading_level") ? b.get("heading_level").asInt() : 0,
-                                b.has("align") ? b.get("align").asText() : ""));
+                                b.has("align") ? b.get("align").asText() : "",
+                                lineAligns(b.get("line_alignments"))));
                     }
                     srcs.add(new BrailleAssist.Source(s.get("orig_page").asInt(), bs));
                 }
@@ -137,7 +148,8 @@ class VectorsTest {
                                     b.has("heading_level") ? b.get("heading_level").asInt() : 0,
                                     b.has("braille") ? b.get("braille").asText() : "",
                                     ints(b.get("breaks")),
-                                    b.has("align") ? b.get("align").asText() : ""));
+                                    b.has("align") ? b.get("align").asText() : "",
+                                    lineAligns(b.get("line_alignments"))));
                         }
                         pages.add(new BrailleAssist.JobPage(
                                 src.has("orig_page") ? src.get("orig_page").asInt() : i + 1, els));

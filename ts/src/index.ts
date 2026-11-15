@@ -199,7 +199,12 @@ export function toBrfAscii(braille: string): string {
 // 레포 밖으로 흩어진다. 이 레포를 만든 이유가 그걸 막으려는 것이다.
 
 /** breaks — 응답 breaks 그대로(그 블록 text 기준, 선택). heading_level 1 — 접힌 줄을 가운데에. */
-export interface Block { order: number; text: string; breaks?: number[] | null; heading_level?: number; align?: string }
+/** line_alignments — translate 응답 line_alignment 그대로(그 블록 text 기준 점자 좌표 + align, #125). */
+export interface LineAlignment { braille_start?: number; braille_end?: number; align?: string }
+export interface Block {
+  order: number; text: string; breaks?: number[] | null; heading_level?: number; align?: string;
+  line_alignments?: LineAlignment[] | null; _line_aligns?: string[];
+}
 export interface Source { orig_page: number; blocks: Block[] }
 
 /** cols를 넘으면 **빈칸(어절) 자리에서** 자른다. 어절 하나가 폭보다 길면 그때만 강제 분리.
@@ -283,7 +288,8 @@ export function wrap(line: string, cols = 32, mode: WrapMode = 'syllable',
 }
 
 /** 쪽바꿈 표식 사이 한 토막의 블록들을 이어 논리 줄로 나누고 o.wrap 갈래로 접는다. 근거는 python `_fold_blocks`.
- *  반환은 [줄, 블록 align] 이다. 정렬은 면을 나눈 뒤(점자 면 번호를 채운 뒤) 놓는다. */
+ *  반환은 [줄, 그 줄 정렬] 이다. 정렬은 면을 나눈 뒤(점자 면 번호를 채운 뒤) 놓는다.
+ *  줄 정렬은 buildPages 가 carryAligns 로 이어 붙인 값(_line_aligns)이다(#125). */
 function foldBlocks(blocks: Block[], o: Options): Array<[string, string]> {
   // 블록은 서로 다른 요소다. 끝 개행 없이 이으면 다음 블록 첫 줄과 한 줄로 붙는다(#40 · braille-assist#16,
   // 웹에서 저장한 쪽의 BE 다운로드). 빈 블록은 줄을 더하지 않고, 아래에서 토막 끝 개행을 종결자로 떼므로
@@ -296,15 +302,14 @@ function foldBlocks(blocks: Block[], o: Options): Array<[string, string]> {
   if (seg === '') return [];   // 내용이 없는 토막(쪽바꿈 표식이 잇달은 자리)은 줄을 안 만든다
   const starts: number[] = [];
   const centers: boolean[] = [];
-  const aligns: string[] = [];
+  const lineAl: string[] = [];
   const gbreaks: number[] = [];
   let acc = 0;
   blocks.forEach((b, i) => {
     starts.push(acc);
     centers.push((b.heading_level ?? 0) === 1);
-    const al = b.align ?? '';
-    if (al && !ALIGNS.includes(al)) throw new Error(`align은 left|center|right: ${al}`);
-    aligns.push(al);
+    const eff = b._line_aligns ?? new Array(texts[i].split('\n').length - 1).fill(checkAlign(b.align));
+    lineAl.push(...eff);
     for (const x of b.breaks ?? []) gbreaks.push(acc + x);
     acc += texts[i].length;
   });
@@ -313,14 +318,55 @@ function foldBlocks(blocks: Block[], o: Options): Array<[string, string]> {
   if (seg.endsWith('\n')) seg = seg.slice(0, -1);
   const out: Array<[string, string]> = [];
   let base = 0;
-  for (const logical of seg.split('\n')) {
+  seg.split('\n').forEach((logical, n) => {
     let k = 0;
     while (k + 1 < starts.length && starts[k + 1] <= base) k++;
     const lb = gbreaks.filter((g) => base < g && g < base + logical.length).map((g) => g - base);
-    for (const w of wrap(logical, o.cols, o.wrap, lb, centers[k])) out.push([w, aligns[k]]);
+    const al = lineAl[n] ?? '';
+    for (const w of wrap(logical, o.cols, o.wrap, lb, centers[k])) out.push([w, al]);
     base += logical.length + 1;
-  }
+  });
   return out;
+}
+
+function checkAlign(al: string | undefined | null): string {
+  const v = al ?? '';
+  if (v && !ALIGNS.includes(v)) throw new Error(`align은 left|center|right: ${v}`);
+  return v;
+}
+
+/** 블록 논리 줄마다 그 줄에 놓인 정렬 태그('' = 없음). 근거는 python `_own_aligns`. */
+function ownAligns(b: Block): string[] {
+  let t = b.text ?? '';
+  if (t === '') return [];
+  if (!t.endsWith('\n')) t += '\n';
+  const lines = t.slice(0, -1).split('\n');
+  const own: string[] = new Array(lines.length).fill('');
+  if (b.line_alignments && b.line_alignments.length) {
+    const starts: number[] = [];
+    let acc = 0;
+    for (const ln of lines) { starts.push(acc); acc += ln.length + 1; }
+    for (const r of b.line_alignments) {
+      const al = checkAlign(r.align);
+      if (!al) continue;
+      const s = r.braille_start ?? 0;
+      let k = 0;
+      while (k + 1 < starts.length && starts[k + 1] <= s) k++;
+      own[k] = al;
+    }
+  } else if (b.align) own[0] = checkAlign(b.align);
+  return own;
+}
+
+/** 정렬을 다음 정렬 태그가 나올 때까지 잇는다(#125). 근거는 python `carry_aligns`. */
+export function carryAligns(blocks: Block[], state = ''): [string[][], string] {
+  const out: string[][] = [];
+  for (const b of blocks) {
+    const eff: string[] = [];
+    for (const al of ownAligns(b)) { state = al || state; eff.push(state); }
+    out.push(eff);
+  }
+  return [out, state];
 }
 
 function hasPageRow(braillePage: number, on: string): boolean {
@@ -440,6 +486,7 @@ export function buildPages(
   const withChange = o.showChangeLine && o.showOrigPage;
   // 1) 원본 쪽 경계마다 변경선을 넣고 32칸으로 자른다. 줄마다 소속 원본 쪽을 들고 간다.
   const flat: Array<[string, number, boolean, string]> = [];   // [줄, 원본 쪽, 표지인가, 정렬]
+  let alignState = '';      // 정렬은 다음 정렬 태그까지 블록 · 원본 쪽을 넘어 이어진다(#125)
   sources.forEach((src, i) => {
     // origPageStart가 있으면 표지 뒤 n번째 본문 원본 페이지를 다시 매긴다.
     const op = o.origPageStart !== null && i >= o.coverPages
@@ -456,7 +503,11 @@ export function buildPages(
       const t = (b.text ?? '').trim();
       if (t === PAGE_BREAK_TAG || t === CHAPTER_TAG) { segs.push(cur); segs.push(t === PAGE_BREAK_TAG ? BREAK : CHAPTER); cur = []; }
       else if (t in RULE_TAGS) cur.push({ order: b.order, text: ruleLine(t, o.cols) });   // 폭이 꼭 cols 라 안 접힌다
-      else cur.push(b);
+      else {
+        const [[eff], st] = carryAligns([b], alignState);
+        alignState = st;
+        cur.push({ ...b, _line_aligns: eff });
+      }
     }
     segs.push(cur);
     for (const seg of segs) {
@@ -545,8 +596,10 @@ export interface JobBlock {
   braille: string;
   breaks?: number[] | null;
   heading_level?: number;
-  /** 정렬 태그 셋(목록표). 없으면 받은 그대로. */
+  /** 정렬 태그 셋(목록표). 그 블록 첫 줄에 놓인 태그로 읽고 다음 태그까지 이어진다(#125). */
   align?: 'left' | 'center' | 'right' | '';
+  /** translate 응답 line_alignment 그대로. 있으면 align 대신 줄마다 읽는다(#125). */
+  line_alignments?: LineAlignment[] | null;
 }
 
 export interface JobSource {
@@ -615,7 +668,7 @@ export function buildPagesFromJob(job: Job): string[][] {
     orig_page: src.orig_page ?? i + 1,
     blocks: (src.blocks ?? []).map((b, k) => ({
       order: b.order ?? k, text: b.braille ?? '', breaks: b.breaks ?? null, heading_level: b.heading_level ?? 0,
-      align: b.align ?? '',
+      align: b.align ?? '', line_alignments: b.line_alignments ?? null,
     })),
   }));
   return buildPages(sources, job.footer ?? '', job.opts?.first_braille_page ?? 1,

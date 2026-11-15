@@ -568,13 +568,16 @@ def test_정수_옵션은_타입과_범위를_본다():
 
 def test_조판_태그는_아는_태그이고_translate_가_맡을_몫만_한다():
     """#66 — 조판 태그(목록표). 줄 태그만 든 요소는 32칸 미리보기, 면 넘김 표식은 빈 점자(종전엔 '점역 못 함' 주가
-    나갔다), 정렬 · 머리말은 글에서 뺀다(앱이 블록 align · job.header(s) 로 옮긴다)."""
+    나갔다), 정렬 · 머리말은 글에서 뺀다(앱이 블록 align · job.header(s) 로 옮긴다). 정렬 태그 자리는 #125 부터
+    `line_alignment` 로 따로 알린다(점자 · 끊을 자리는 태그를 뺀 글과 같다)."""
     r = sidecar.translate("<!표시작>")
     assert r["cells"] == "⠖" + "⠒" * 30 + "⠲" and r["unknown_tags"] == [] and not r["blocked"]
     for t in ("<!쪽바꿈>", "<!장바꿈>", "<!머리말>제1장<!/머리말>"):
         r = sidecar.translate(t)
         assert (r["cells"], r["blocked"], r["unknown_tags"]) == ("", False, []), t
-    assert sidecar.translate("<!가운데정렬>제목") == sidecar.translate("제목")
+    tagged = sidecar.translate("<!가운데정렬>제목")
+    assert tagged.pop("line_alignment")[0]["align"] == "center"
+    assert tagged == sidecar.translate("제목")
     assert sidecar.translate("<!머리말>제1장<!/머리말>본문")["cells"] == sidecar.translate("본문")["cells"]
 
 
