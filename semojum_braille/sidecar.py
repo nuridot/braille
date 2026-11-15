@@ -138,6 +138,8 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
                 "prefix_rows": 0, "suffix_rows": 0, "rule_trail": [],
                 "dropped": [], "blocked": False, "unknown_tags": []}
     unknown = _unknown_tags(text)
+    align_src = _HEADER_RE.sub("", text)          # 머리말 안 정렬 태그는 머리말 것이라 줄 정렬에서 뺀다
+    align_src = align_src if _ALIGN_TAG_RE.search(align_src) else None
     text = _HEADER_RE.sub("", _ALIGN_TAG_RE.sub("", text))
     for tag, slot in _SLOTS.items():
         text = text.replace(tag, slot)
@@ -172,7 +174,12 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     def _finish(fe) -> dict:
         if fe is None:                   # 내용이 없는 요소는 flatten_elements 가 담지 않는다
             return {"cells": "", "breaks": [], "prefix_rows": 0, "suffix_rows": 0, "rule_trail": [], **out}
-        return _unslot({**_body(fe, fe.text, fe.breaks, blank_lines), "rule_trail": _trail(fe, blank_lines), **out})
+        res = _unslot({**_body(fe, fe.text, fe.breaks, blank_lines), "rule_trail": _trail(fe, blank_lines), **out})
+        if align_src is not None:
+            rows = line_alignment(align_src, res["cells"], res["prefix_rows"] if blank_lines else 0)
+            if rows is not None:
+                res["line_alignment"] = rows
+        return res
 
     if _page is not None:                # `translate_page` 가 쪽 요소를 모아 한 번에 편다
         _page.append((bo, el, _finish))
@@ -231,6 +238,42 @@ def translate_page(elements: list[dict], korean_grade: int = 2, english_grade: i
             results[at] = finish(flat.get(bo.element_id))
     return {"elements": [{"id": el.get("id") or str(i), **(res or {})}
                          for i, (el, res) in enumerate(zip(elements, results))]}
+
+
+_ALIGN_NAMES = {"왼쪽": "left", "가운데": "center", "오른쪽": "right"}
+_ALIGN_CAP_RE = re.compile(r"<!(왼쪽|가운데|오른쪽)정렬>")
+
+
+def line_alignment(source: str, cells: str, prefix_rows: int = 0) -> list[dict] | None:
+    """정렬 태그가 든 묵자 → 줄마다 정렬 행(#125). 묵자 줄과 점자 본문 줄이 하나씩 맞지 않으면 None.
+
+    행 `{source_start, source_end, braille_start, braille_end, align, effective}`.
+    - `source_*` 는 정렬 태그를 뺀 묵자의 오프셋이다(줄 사이 개행 1자).
+    - `braille_start` 는 그 줄 앞 빈칸(들여쓰기)을 지난 첫 칸, `braille_end` 는 그 줄 끝(개행 자리)이다. `cells` 기준.
+    - `align` 은 **그 줄에 놓인** 태그(`left` · `center` · `right`, 없으면 ""). 한 줄에 둘이면 뒤의 것이다.
+    - `effective` 는 이 요소 안에서 이어진 값이다. 태그가 든 줄부터 다음 태그 앞 줄까지 같은 값이고, 이 요소에서
+      아직 태그가 안 나온 줄은 ""(앞 블록의 정렬을 잇는다)다. 블록을 넘어 잇는 것은 조판(`assist.carry_aligns`)이 한다.
+    태그는 줄 중간에 있어도 그 줄 전체에 걸린다(실로암브레일과 같다).
+    """
+    lines = source.split("\n")
+    rows = cells.split("\n")
+    body = rows[prefix_rows:prefix_rows + len(lines)]
+    if len(body) != len(lines) or any(r.strip("⠀ ") for r in rows[prefix_rows + len(lines):]):
+        return None
+    out, s_at, cur = [], 0, ""
+    b_at = sum(len(r) + 1 for r in rows[:prefix_rows])
+    for src, cel in zip(lines, body):
+        tags = _ALIGN_CAP_RE.findall(src)
+        clean = _ALIGN_CAP_RE.sub("", src)
+        own = _ALIGN_NAMES[tags[-1]] if tags else ""
+        cur = own or cur
+        lead = len(cel) - len(cel.lstrip("⠀ "))
+        out.append({"source_start": s_at, "source_end": s_at + len(clean),
+                    "braille_start": b_at + min(lead, len(cel)), "braille_end": b_at + len(cel),
+                    "align": own, "effective": cur})
+        s_at += len(clean) + 1
+        b_at += len(cel) + 1
+    return out
 
 
 def _unslot(res: dict) -> dict:
