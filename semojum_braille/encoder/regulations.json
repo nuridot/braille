@@ -4870,9 +4870,9 @@
       "section": {
         "Chapter": "제2장. 점역 일반",
         "Section": "2.4. 본문",
-        "Paragraph": "2.4.7. 주석"
+        "Paragraph": "2.4.7. 주석(한글 점자 제60항)"
       },
-      "rule_name": "주석",
+      "rule_name": "주석(한글 점자 제60항)",
       "contents": "본문의 특정 영역에 대해서 유도선 등을 이용해 설명하거나 덧붙이는 글상자 등은 주석 표기 방법을 적용할 수 있다.",
       "default_tag": "",
       "supported": false
@@ -4912,9 +4912,9 @@
       "section": {
         "Chapter": "제2장. 점역 일반",
         "Section": "2.4. 본문",
-        "Paragraph": "2.4.10. 강조"
+        "Paragraph": "2.4.10. 강조(한글 점자 제56항)"
       },
-      "rule_name": "강조",
+      "rule_name": "강조(한글 점자 제56항)",
       "contents": "드러냄표나 밑줄로 강조된 글자체는 ⠠⠤⠀⠤⠄으로 묶어 나타낸다.",
       "default_tag": "",
       "supported": false
@@ -4967,9 +4967,9 @@
       "section": {
         "Chapter": "제2장. 점역 일반",
         "Section": "2.5. 문자, 기호, 문장 부호",
-        "Paragraph": "2.5.1. 단독으로 쓰인 한글 자음과 모음"
+        "Paragraph": "2.5.1. 단독으로 쓰인 한글 자음과 모음(한글 점자 제8항~제10항)"
       },
-      "rule_name": "단독으로 쓰인 한글 자음과 모음",
+      "rule_name": "단독으로 쓰인 한글 자음과 모음(한글 점자 제8항~제10항)",
       "contents": "단독으로 쓰인 자모: 자음자나 모음자가 단독으로 쓰일 때에는 해당 글자 앞에 온표 ⠿을 적어 나타내며, 자음자는 받침으로 적고 쌍시옷은 ⠄⠄으로 적는다.",
       "default_tag": "",
       "supported": false
@@ -5023,9 +5023,9 @@
       "section": {
         "Chapter": "제2장. 점역 일반",
         "Section": "2.5. 문자, 기호, 문장 부호",
-        "Paragraph": "2.5.5. 글머리 기호"
+        "Paragraph": "2.5.5. 글머리 기호(한글 점자 제72항)"
       },
-      "rule_name": "글머리 기호",
+      "rule_name": "글머리 기호(한글 점자 제72항)",
       "contents": "글머리 기호는 항목을 나열하거나 항목 사이의 위계를 나타내기 위해 사용한다.",
       "default_tag": "",
       "supported": false
@@ -5064,9 +5064,9 @@
       "section": {
         "Chapter": "제2장. 점역 일반",
         "Section": "2.6. 한글 문장 안의 영어",
-        "Paragraph": "2.6.1. 한글 문장 안의 로마자표와 종료표"
+        "Paragraph": "2.6.1. 한글 문장 안의 로마자표와 종료표(한글 점자 제29항)"
       },
-      "rule_name": "한글 문장 안의 로마자표와 종료표",
+      "rule_name": "한글 문장 안의 로마자표와 종료표(한글 점자 제29항)",
       "contents": "한글 위주의 자료에서 다음과 같은 경우 로마자표나 종료표를 생략할 수 있다.",
       "default_tag": "",
       "supported": false
