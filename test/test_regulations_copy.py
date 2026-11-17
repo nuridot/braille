@@ -19,6 +19,8 @@ def test_ICEB_조항과_출처_칸이_없다():
     assert "ICEB-" in _DATA["_meta"]["engine_copy"]
 
 
-def test_근거_조회_239_검색_전용_101():
+def test_근거_조회_239_검색_전용_230():
+    # 101 = 음악 · 국제음성기호(R-94). +129 = 두 제작 지침의 목차 전수 대조로 채운 조항
+    #   (NLD 5 · NISE 124, 2026-11-17). 엔진이 아직 rule_trail 을 달지 않아 검색 전용이다.
     assert len(all_rule_ids()) == 239
-    assert sum(1 for v in _DATA["rules"].values() if v.get("supported", True) is False) == 101
+    assert sum(1 for v in _DATA["rules"].values() if v.get("supported", True) is False) == 230
