@@ -271,3 +271,4 @@ test/unit_test/braille/test_text_latex_escape.py
 test/unit_test/braille/test_script_num_gap.py
 test/unit_test/braille/test_box_char_roman.py
 test/unit_test/braille/test_math_hangul_terms.py
+test/unit_test/braille/test_reg73_blanks.py
