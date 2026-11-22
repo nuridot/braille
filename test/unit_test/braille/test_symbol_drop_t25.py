@@ -21,7 +21,7 @@ def test_해설_라벨_뒤_화살표는_쌍점이라_안_센다():
 
 
 def test_실제로_사라지는_자리다():
-    assert translate_body("가▶나")[0] == translate_body("가나")[0]
+    assert translate_body("가▶나")[0] == ["⠫⣿⠉"]       # 사라지는 자리에 공통 표시 하나(#1705)
 
 
 @pytest.mark.parametrize("text", [

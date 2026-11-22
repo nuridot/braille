@@ -224,94 +224,142 @@ def _be_is_syllable(word: str) -> bool:
 _INITIAL_SPELLED: dict[str, tuple[str, ...]] = {"ever": ("severe",), "one": ("colonel",)}
 
 
-def _apply_groups(word: str, ebae: bool = False, mid: bool = False) -> str:
-    """소문자 낱말 → 약자 적용 셀열. 긴 약자 우선, 위치 제약 준수.
+# 통일영어점자 10.10 Preference(`통일영어점자 규정_UEB2013.txt` 5666~5809행): 겹치는 약자 고르기. 낱말 전체 셀 수가 적은 쪽이
+#   먼저다(10.10.2, 5670행). 같으면 차례대로 첫 음절 be · con · dis 를 씀(10.10.4, 5707행) · encea · enced · encer 의 ence 를 씀
+#   (10.10.6, 5740행) · 머리글자 약자와 끝 묶음 약자를 덜 씀(10.10.7, 5750행) · 강약자 and · for · of · the · with 를 더 씀(10.10.3,
+#   5688행) · 아래칸 묶음 약자를 덜 씀(10.10.5, 5725행). 그래도 같으면 앞자리에서 긴 약자를 쓴다.
+#   점수는 (셀 수, -첫 음절, -ence, 머리 · 끝 약자, -강약자, 아래칸) 이고 작은 쪽이 이긴다. 낱말마다 더하는 값이라 뒤에서부터 채우는
+#   표(동적 계획)로 낱말 전체의 최선을 고른다. 종전엔 왼쪽부터 긴 약자를 써 `happiness` 가 happ+in+ess(8칸)로 나갔다(ness 약자를 쓰면 7칸).
+#   ponytail: 발음 · 형태소로 가르는 규칙(10.10.8 · 10.11 합성어 경계 · 10.7.5 here · name 음절)은 철자로 못 갈라 셀 수가 이긴다
+#   (`whereas` · `enamel` 은 셀이 적은 쪽이 규정과 다르다). 발음 사전이 들어오면 그 조건을 이 점수 앞에 건다.
+_STRONG_CONTRACTIONS = frozenset({"and", "for", "of", "the", "with"})
+_LOWER_GROUPS = _LOWER_CELL | {"en", "in"}
+# 10.7.2(5155~5156행) upon · these · those · whose · there 는 낱말 뜻이 남을 때만 쓴다(`coupon` · `hypotheses` 는 안 씀). 낱말 속에서는
+#   here · where · there 하나 뒤에 붙은 합성어만 그 뜻이 남는다.
+_WHOLE_WORD_INITIAL = frozenset({"upon", "these", "those", "whose", "there"})
+_WHOLE_WORD_HEADS = frozenset({"here", "where", "there"})
+# 10.8.3(5427~5428행) 규정이 낱말 다섯을 못 박아 ity 를 안 쓰게 한다(hoity-toity 는 붙임표에서 갈려 두 조각으로 온다).
+_ITY_SPELLED = frozenset({"biscuity", "dacoity", "fruity", "hoity", "toity", "rabbity"})
 
-    `ebae=True` 는 역점역 왕복 검사 전용이다 — 옛 EBAE 책 줄(`DON,N` = donation)을 되짚는다.
+
+def _syllable_follows(rest: str) -> bool:
+    """10.6.1(4793~4795행) be · con · dis 뒤가 묵음 e(e · es · ed)뿐이면 낱말이 한 음절이라 첫 음절이 따로 없다(`cone`).
+
+    뒤가 자음뿐인 꼴(`cont` · `dist`)은 줄임말일 수 있어 그대로 쓴다. 10.6.4(4859~4864행)가 줄임말에는 허용한다.
+    """
+    return rest not in ("e", "es", "ed")
+
+
+def _group_options(word: str, i: int, ebae: bool, mid: bool, initial_syl: dict[str, str],
+                   keys: list[str]) -> Iterator[tuple[int, str, tuple[int, ...]]]:
+    """i 자리에서 쓸 수 있는 (글자 수, 셀, 점수). keys 차례(긴 약자 먼저)이고 맨 끝은 글자 하나다."""
+    n = len(word)
+    for k in keys:
+        if not word.startswith(k, i):
+            continue
+        if k in initial_syl:
+            # 첫머리 음절 약자는 뒤에 글자가 더 있어야 한다(be/con/dis 단독 아님)
+            if i != 0 or mid or n <= len(k):
+                continue
+            # UEB — 첫 음절을 이룰 때만 쓴다. `dish` 는 d-i-sh 라 dis 가 음절이 아니다
+            #   (규정 제39항 예문 `dishes` = di%es, #950)
+            if k == "dis" and word[3:4] == "h":
+                continue
+            if k == "be" and not ebae and not _be_is_syllable(word):
+                continue
+            if not ebae and not _syllable_follows(word[len(k):]):
+                continue
+            cells = initial_syl[k]
+            yield len(k), cells, (len(cells), -1, 0, 0, 0, 0)
+        elif k in STRONG_GROUPS or k in EBAE_ONLY_GROUPS:
+            if i == 0 and k in _NOT_WORD_INITIAL and not (mid and k not in _LOWER_CELL):
+                continue
+            if k in _LOWER_CELL:
+                if i + len(k) >= n:
+                    continue    # 아래칸 약자는 낱말 끝에도 못 온다
+                # 옛 책 되짚기는 종전대로 한 칸 물러서면 윗칸 약자가 시작되는 자리면 그쪽을 쓴다(year = y+e+ar). 정방향은
+                #   10.10.5 점수가 같은 일을 한다.
+                if ebae and any(word.startswith(k2, i + 1) for k2 in STRONG_GROUPS if k2 not in _LOWER_CELL):
+                    continue
+            # 10.11.2(5835~5836행) h 가 따로 소리 나면 gh 를 안 쓴다. ng 뒤 h 는 늘 새 음절 머리다(long + hand).
+            if k == "gh" and i and word[i - 1] == "n" and not ebae:
+                continue
+            cells = STRONG_GROUPS.get(k) or EBAE_ONLY_GROUPS[k]
+            yield len(k), cells, (len(cells), 0, 0, 0, -(k in _STRONG_CONTRACTIONS), int(k in _LOWER_GROUPS))
+        elif k in FINAL_EBAE_ONLY:
+            if i == 0:          # 끝글자 약자는 낱말 첫머리에 못 온다
+                continue
+            yield len(k), FINAL_EBAE_ONLY[k], (2, 0, 0, 1, 0, 0)
+        elif k in FINAL_46 or k in FINAL_56:
+            if i == 0 and not mid:      # 낱말 첫머리만 막는다 — 단축형 뒤 조각은 첫머리가 아니다(`blindness` = bl;s, #1582)
+                continue
+            # 10.8.4(5431~5432행) en · in 으로 끝난 낱말에 여성 어미 ess 를 붙이면 ness 를 안 쓴다. ai 뒤 ness 는 ain + ess 뿐이다
+            #   (ain 뒤 ness 는 nness 로 적힌다). eness · iness 는 happiness 꼴과 철자로 안 갈려 ness 를 쓴다.
+            if not ebae and ((k == "ity" and word in _ITY_SPELLED) or (k == "ness" and word[i - 2:i] == "ai")):
+                continue
+            cells = ("⠨" + FINAL_46[k]) if k in FINAL_46 else ("⠰" + FINAL_56[k])
+            yield len(k), cells, (2, 0, -(k == "ence" and word[i + 4:i + 5] in ("a", "d", "r")), 1, 0, 0)
+        else:                    # 머리글자 약자 — 낱말 속에서도 쓴다(#1216)
+            # UEB 10.7: 머리글자 약자는 낱말 첫머리만이 아니라 낱말 속에서도 쓴다 — gold `phone` = ⠏⠓⠐⠕ ·
+            #   `money` = ⠍⠐⠕⠽ · `never` = ⠝⠐⠑ · `bought` = ⠃⠐⠳. 영어책(holdout 제외) 낱말 단위 전수 gold 만 약자
+            #   1,645낱말 · 우리만 0(`V2/temp/n46/e9/ini_census.py`). 종전엔 첫머리에서만 써 낱말 속에서 다 풀어 적었다.
+            #   EBAE(옛 책 되짚기)는 종전대로 첫머리에서만.
+            if i != 0 and ebae:
+                continue
+            if i != 0 and any(w in word for w in _INITIAL_SPELLED.get(k, ())):
+                continue
+            if i != 0 and k in _WHOLE_WORD_INITIAL and not ebae and word[:i] not in _WHOLE_WORD_HEADS:
+                continue
+            # 10.7.4(5194~5195행) ever 는 앞 글자가 e · i 면 안 쓴다 — `believer` = 2liev] · `McKeever` = ,mc,keev] ·
+            #   `thievery` = ?iev]y. 강세 조건(severity · revere)은 발음이 있어야 해 그대로 둔다.
+            if k == "ever" and i and word[i - 1] in "ei":
+                continue
+            cells = ("⠐" + INITIAL_5[k]) if k in INITIAL_5 else ("⠘" + INITIAL_45[k]) if k in INITIAL_45 \
+                else ("⠸" + INITIAL_456[k])
+            yield len(k), cells, (2, 0, 0, 1, 0, 0)
+    yield 1, ALPHABET.get(word[i], word[i]), (1, 0, 0, 0, 0, 0)
+
+
+def _apply_groups(word: str, ebae: bool = False, mid: bool = False) -> str:
+    """소문자 낱말 → 약자 적용 셀열. 겹치는 약자는 10.10 차례로 고르고(위 점수), 위치 제약을 지킨다.
+
+    `ebae=True` 는 역점역 왕복 검사 전용이다 — 옛 EBAE 책 줄(`DON,N` = donation)을 되짚는다. 이 길은 종전대로 왼쪽부터 긴 약자를 쓴다.
     `mid=True` 는 이 조각이 낱말 첫머리가 아니라는 뜻이다(아포스트로피 뒤 조각 #1543 · 단축형 뒤 조각 #1582) — 첫머리 음절
     약자(be · con · dis)를 안 쓰고, 첫머리에 못 오던 윗칸 약자 ing 와 끝 묶음표(ness · ance …)는 쓴다. UEB Appendix 2 `O'Connor` = ,o',connor · `Ch'ing` = ,*'+.
     아래칸 약자(ea · bb …)는 앞이 글자가 아니라 그대로 못 쓴다(`sou'east` = s\\'ea/).
     """
-    # 긴 약자 우선, 길이가 같으면 **윗칸 약자가 아래칸 약자보다 우선**한다.
-    # year·near·clear에서 ar(⠜)이 ea(⠂)를 이겨야 한다(실측 12건: 우리 ⠂⠗ vs 정답 ⠑⠜).
     initial_syl = {**WORD_INITIAL_SYLLABLE, **EBAE_ONLY_INITIAL} if ebae else WORD_INITIAL_SYLLABLE
     keys = sorted(set(STRONG_GROUPS) | (set(FINAL_EBAE_ONLY) | set(EBAE_ONLY_GROUPS) if ebae else set())
                   | set(initial_syl)
                   | set(FINAL_46) | set(FINAL_56)
                   | set(INITIAL_5) | set(INITIAL_45) | set(INITIAL_456),
                   key=lambda k: (-len(k), k in _LOWER_CELL))
-    out: list[str] = []
-    i = 0
-    while i < len(word):
-        for k in keys:
-            if not word.startswith(k, i):
-                continue
-            if k in initial_syl:
-                # 첫머리 음절 약자는 뒤에 글자가 더 있어야 한다(be/con/dis 단독 아님)
-                if i != 0 or mid or len(word) <= len(k):
-                    continue
-                # UEB — 첫 음절을 이룰 때만 쓴다. `dish` 는 d-i-sh 라 dis 가 음절이 아니다
-                #   (규정 제39항 예문 `dishes` = di%es, #950)
-                if k == "dis" and word[3:4] == "h":
-                    continue
-                if k == "be" and not ebae and not _be_is_syllable(word):
-                    continue
-                out.append(initial_syl[k])
-            elif k in STRONG_GROUPS or k in EBAE_ONLY_GROUPS:
-                if i == 0 and k in _NOT_WORD_INITIAL and not (mid and k not in _LOWER_CELL):
-                    continue
-                if k in _LOWER_CELL:
-                    if i + len(k) >= len(word):
-                        continue    # 아래칸 약자는 낱말 끝에도 못 온다
-                    # 한 칸 물러서면 윗칸 약자가 시작되는 자리면 그쪽을 쓴다.
-                    # year는 y+ea+r(⠽⠂⠗)이 아니라 y+e+ar(⠽⠑⠜)이다(실측 12건).
-                    if any(word.startswith(k2, i + 1)
-                           for k2 in STRONG_GROUPS if k2 not in _LOWER_CELL):
-                        continue
-                out.append(STRONG_GROUPS.get(k) or EBAE_ONLY_GROUPS[k])
-            elif k in FINAL_EBAE_ONLY:
-                if i == 0:          # 끝글자 약자는 낱말 첫머리에 못 온다
-                    continue
-                out.append(FINAL_EBAE_ONLY[k])
-            elif k in FINAL_46 or k in FINAL_56:
-                if i == 0 and not mid:      # 낱말 첫머리만 막는다 — 단축형 뒤 조각은 첫머리가 아니다(`blindness` = bl;s, #1582)
-                    continue
-                out.append(("⠨" + FINAL_46[k]) if k in FINAL_46 else ("⠰" + FINAL_56[k]))
-            else:                    # 머리글자 약자 — 낱말 속에서도 쓴다(#1216)
-                # UEB 10.7: 머리글자 약자는 낱말 첫머리만이 아니라 낱말 속에서도 쓴다 — gold `phone` = ⠏⠓⠐⠕ ·
-                #   `money` = ⠍⠐⠕⠽ · `never` = ⠝⠐⠑ · `bought` = ⠃⠐⠳. 영어책(holdout 제외) 낱말 단위 전수 gold 만 약자
-                #   1,645낱말 · 우리만 0(`V2/temp/n46/e9/ini_census.py`). 종전엔 첫머리에서만 써 낱말 속에서 다 풀어 적었다.
-                #   겹침은 위 왼→오 최장 규칙이 가른다(`shadow` 는 sh 먼저 · `coupon` 은 ou 먼저 · there 가 here 보다 먼저).
-                #   EBAE(옛 책 되짚기)는 종전대로 첫머리에서만.
-                if i != 0 and ebae:
-                    continue
-                # 낱말 속 one · there 의 끝 e 가 뒤 글자와 ed · er · en 을 이루면 쓰지 않는다 — gold 낱말 속에서 풀어씀 71 :
-                #   약자 0(postponed 7 · sooner 7 · component 6 · abandoned 5 · gathered 11 …). named · timer 는 약자다(35 · 11)라
-                #   두 약자에만 건다.
-                if i != 0 and k in ("one", "there") and word[i + len(k):i + len(k) + 1] in ("d", "n", "r"):
-                    continue
-                if i != 0 and any(w in word for w in _INITIAL_SPELLED.get(k, ())):
-                    continue
-                # 10.7.4(5194~5195행) ever 는 앞 글자가 e · i 면 안 쓴다 — `believer` = 2liev] · `McKeever` = ,mc,keev] ·
-                #   `thievery` = ?iev]y. 강세 조건(severity · revere)은 발음이 있어야 해 그대로 둔다.
-                if k == "ever" and i and word[i - 1] in "ei":
-                    continue
-                if k in INITIAL_5:
-                    out.append("⠐" + INITIAL_5[k])
-                elif k in INITIAL_45:
-                    out.append("⠘" + INITIAL_45[k])
-                else:
-                    out.append("⠸" + INITIAL_456[k])
-            i += len(k)
-            break
-        else:
-            out.append(ALPHABET.get(word[i], word[i]))
-            i += 1
-    return "".join(out)
+    if ebae:
+        out: list[str] = []
+        i = 0
+        while i < len(word):
+            step, cells, _ = next(_group_options(word, i, ebae, mid, initial_syl, keys))
+            out.append(cells)
+            i += step
+        return "".join(out)
+    # 종전 덧댄 예외 둘(year 의 ea 대신 ar · 낱말 속 one · there 뒤 d · n · r 이면 풀어씀)은 10.10.5 · 10.10.7 점수가 맡는다.
+    n = len(word)
+    best: list[tuple[tuple[int, ...], str]] = [((0,) * 6, "")] * (n + 1)
+    for i in range(n - 1, -1, -1):
+        pick = None
+        for step, cells, score in _group_options(word, i, ebae, mid, initial_syl, keys):
+            rest_score, rest_cells = best[i + step]
+            total = tuple(a + b for a, b in zip(score, rest_score))
+            if pick is None or total < pick[0]:
+                pick = (total, cells + rest_cells)
+        best[i] = pick
+    return best[0][1]
 
 
 # 대문자 런 / 대문자 아닌 런 — 혼합 낱말의 대문자 표기 단위(#934)
 _CASE_RUN_RE = re.compile(rf"[A-Z{_MODIFIED_UPPER}]+|[^A-Z{_MODIFIED_UPPER}]+")
+# 이름꼴 낱말(#1685): 첫 토막은 대문자 + 소문자 하나 이상, 뒤 토막은 대문자 + 소문자 둘 이상
+_NAME_CASE_RE = re.compile(r"[A-Z][a-z]+(?:[A-Z][a-z]{2,})+")
 
 
 def _is_element_seq(word: str) -> bool:
@@ -376,6 +424,14 @@ def _translate_word(word: str, ebae: bool = False, uncontracted: bool = False) -
                     else _groups_only(parts[0], ebae, uncontracted))
         return _APOS_CELL.join([head] + [_groups_only(p, ebae, uncontracted, mid=True) for p in parts[1:]])
     letters = [c for c in word if c.isalpha()]
+    # 이름꼴(`SmithInge` · `McKeever` · `YouTube`)은 약어가 아니라 낱말이다(#1685). 「통일영어점자 규정」 10.4.3 예(재추출 4638행)
+    #   `SmithInge` = `,smi?,+e` · 10.7.4 예(5211행) `McKeever` = `,mc,keev]`. 대문자 자리에서 토막 내 토막마다 ⠠ 를 달고 약자를
+    #   매긴다. 약자는 대문자 자리를 넘지 않고, 뒤 토막은 낱말 첫머리가 아니라 ing 를 쓴다(10.4.3). 뒤 토막은 소문자 둘 이상만
+    #   보고, 대문자 바로 뒤가 같은 글자 소문자인 토막(`Aa` · `Bb`)이 있으면 유전자형이라 뺀다. 원소 기호 · 유전자형(`HCl` ·
+    #   `AaBbdd`)은 아래 약어 갈래 그대로다.
+    segs = re.findall(r"[A-Z][a-z]+", word) if not uncontracted and _NAME_CASE_RE.fullmatch(word) else []
+    if segs and all(s[0].lower() != s[1] for s in segs):
+        return "".join(_CAPITAL + _apply_groups(s.lower(), ebae, mid=k > 0) for k, s in enumerate(segs))
     if _is_abbrev(word):
         if all(c.isupper() for c in letters):
             return "⠠⠠" + "".join(ALPHABET.get(c.lower(), c) for c in word)
@@ -472,9 +528,11 @@ def _looks_contracted(word: str) -> bool:
     #   안에서 단축형으로 읽히는 것은 10.9.3 의 열 개뿐이라 그 앞머리만 본다: braille·great 는 늘,
     #   blind·friend·good·letter·little·quick 은 뒤가 모음·y 가 아닐 때. 2027 gold `GDP` ⠰ 12/12 ·
     #   10.9.3 밖(ABC·ABO·ABD) 0/257(재현 `V2/temp/n14-acc/g1_prefix_measure.py`). 구판은 GDP 0/21(판본 역전).
-    # ponytail: 실물이 전부 대문자 약어라 대문자 낱말만 본다 — 소문자 낱말은 약자 적용 경로가 따로다.
-    return word.isupper() and any(cells.startswith(h) and (any_pos or cells[len(h):][:1] not in _VOWEL_Y_CELLS)
-                                  for h, any_pos in _SHORTFORM_HEADS)
+    # 첫 글자만 대문자인 낱말(고유명사)도 본다 — 1lv 영어 `Grtsamada` 는 grt(great)로 시작한다(#1710). 보통 낱말은 단축형 머리
+    #   글자로 시작하지 않는다(braille · great 는 뒤가 모음이라 brl · grt 가 아니고, 나머지는 뒤가 모음 · y 면 안 본다).
+    # ponytail: 소문자 낱말은 약자 적용 경로가 따로라 안 본다.
+    return (word.isupper() or word.istitle()) and any(
+        cells.startswith(h) and (any_pos or cells[len(h):][:1] not in _VOWEL_Y_CELLS) for h, any_pos in _SHORTFORM_HEADS)
 
 
 # 통일영어점자 2.6.1~2.6.3(1345~1426행) — 앞이 빈칸 · 붙임표 · 줄표(사이에 여는 괄호 · 따옴표 · 아포스트로피가 껴도 된다),
@@ -666,6 +724,10 @@ def translate(text: str, ebae: bool = False, grade1: str = "", uncontracted: boo
     grade1 "eng" — 한글 없는 영어 줄에서 붙임표로 이어진 구간. ⠰ 는 "cont" 처럼 적고 제37항 [붙임] 대신 통일영어점자 아래칸 단어
     약자 규칙(10.5)을 쓴다.
 
+    grade1 "label" — 한글도 없고 영어 산문도 아닌 줄(라벨 · 표 칸 · 홀로 선 낱말). 홀로 선 **두 글자 이상** 약자꼴(`CD` · `BLCUP`)에만
+    ⠰ 를 적는다(통일영어점자 10.9.5, #1710). 홑 낱자는 원장 C-99 대로 안 적는다 — 그 근거(표 칸 · 그림 라벨의 홑 낱자)가 여러 글자
+    약자꼴까지 덮지 않는다.
+
     before · after — text 앞뒤로 이어지는 글자 두어 개(호출부 세그와 그 뒤 줄 글에서). 첫 낱말 · 끝 낱말이 '홀로 서는가'(2.6) ·
     문장 부호에 닿았는가(10.5)를 가르는 데만 쓴다.
     """
@@ -705,11 +767,15 @@ def translate(text: str, ebae: bool = False, grade1: str = "", uncontracted: boo
             last = m.end()
             continue
         mark = (grade1 and not ebae and k not in passage and _looks_contracted(w)
-                and not (grade1 == "lead" and k == 0 and m.start() == 0 and len(w) == 1))
+                and not (grade1 == "lead" and k == 0 and m.start() == 0 and len(w) == 1)
+                and not (grade1 == "label" and len(w) == 1))
         b1 = text[m.start() - 1] if m.start() else before[-1:]
         a1 = text[m.end()] if m.end() < len(text) else after[:1]
         alone = _alone_before(before + text[:m.start()]) and _alone_after(text[m.end():] + after)
-        if grade1 == "eng" and not alone:
+        if grade1 in ("eng", "label") and not alone:
+            mark = False
+        # 수 바로 뒤 a~j 글자는 앞단이 수와 띄워 넘긴다(「수학 점자」 [다만], C5 방어). 그 빈칸은 홀로 선 자리가 아니다(`3ab`).
+        if grade1 == "label" and re.search(r"[0-9⠼][ ⠀]*$", before + text[:m.start()]):
             mark = False
         low = w.lower()
         if not ebae and k not in passage and (

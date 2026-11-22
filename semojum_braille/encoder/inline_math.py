@@ -26,7 +26,7 @@ import re
 from contextvars import ContextVar
 
 from semojum_braille.encoder.constants import WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
-from semojum_braille.encoder.kor_math_rules import _ELEMENTS, UNI_SUB, UNI_SUP, unicode_scripts_to_latex
+from semojum_braille.encoder.kor_math_rules import _ELEMENTS, UNI_SUB, UNI_SUP, is_genotype, unicode_scripts_to_latex
 
 # 캡셔닝 LLM이 쓰는 유니코드 수학 표기(QA 10번, 2026-08-08). 아래 _ATOM·_STRONG에
 # 넣어야 `Ca²⁺`·`aₙ₊₁`·`f′(x)`·`2ˣ`가 **한 구간**으로 잡힌다. 안 넣으면 구간이 그
@@ -134,6 +134,9 @@ def _has_strong(core: str) -> bool:
     return any(_LETTER_RE.search(m.group()) for m in _ABS_PAIR_RE.finditer(core))
 _FUNCS = ("arcsin", "arccos", "arctan", "sinh", "cosh", "tanh",
           "sin", "cos", "tan", "sec", "csc", "cot", "log", "ln", "lim")
+# 영어 산문 구간(#1685): 함수 이름이 아닌 소문자 낱말(두 글자 이상)이 끼고 연산 · 관계 기호와 첨자가 없다.
+_PROSE_WORD_RE = re.compile(rf"(?<![A-Za-z\\])(?!(?:{'|'.join(_FUNCS)})(?![A-Za-z]))[a-z]{{2,}}(?![A-Za-z])")
+_MATH_MARK_RE = re.compile(f"[{re.escape(_BIN_OPS)}^_/|√∑∫±·{_UNI_SCRIPTS}{_UNI_RELATIONS}\\\\]")
 _TAGGED_RE = re.compile(r"<!수식>.*?<!/수식>", re.DOTALL)
 
 # 계수분수(1/2x 등)는 인쇄 원문이 세로분수라 gold도 분수형(제7항 1호)으로 적는다.
@@ -267,6 +270,34 @@ def _wrap_segment(seg: str) -> str:
     return _wrap_tokens(seg)
 
 
+# 띄어 쓴 두 식(#1737) — 수식 원자에 빈칸이 들어 있어 `2×3=6 6÷2=3` 이 한 구간이 됐고, 수식 점자는 구간 안 빈칸을
+#   지우므로 `6 6` 이 ⠼⠋⠋(=66)로 붙었다. 연산 기호 없이 **피연산자끼리 빈칸으로만** 맞닿은 자리는 두 식의 경계다.
+#   식마다 따로 감싸면 수학 제11항(재추출 3235행) "수식은 앞뒤를 두 칸씩" 대로 두 칸이 선다.
+#   함수 이름 뒤(`sin x` · `log 2`)는 한 식이라 안 가른다.
+_JUXTA_RE = re.compile(r"(?<=[0-9A-Za-z)\]}′'" + _UNI_SCRIPTS + r"])[ \t]+(?=[0-9A-Za-z√])")
+_FUNC_TAIL_RE = re.compile(r"(?<![A-Za-z])(?:sin|cos|tan|sec|csc|cot|log|ln|lim|max|min|exp|det)$")
+
+
+#   ★ 양쪽 조각이 **둘 다 관계 기호(= < > ≤ ≥ ≠ …)를 가진 완결된 식**일 때만 가른다. 빈칸 곱(`p-2a (x-p-a)` ·
+#   `Sn=A n`)과 조건 괄호 · 단위(`8.7 ha`)는 한쪽에 관계 기호가 없어 안 갈린다. 2027 dev · val 글자층에서 이 조건
+#   없이 가르면 171줄이 바뀌었고 그 대부분이 빈칸 곱이었다.
+#   ★ 오른쪽이 괄호로 시작하면(`an=a+(n-1)d (n=1, 2, 3, …)`) 조건 괄호라 안 가른다. gold 는 한 식으로 두고 한 칸만
+#   띄운다(수학 E26-009 p068 `a;n33a58n9#a0d 8n33#a" #b" #c"`). 두 식이면 두 칸이다(p004 `a55#j  a33#j  a99#j`).
+_RELATION_RE = re.compile(rf"[=<>≤≥≠≈≡{_UNI_RELATIONS}]")
+
+
+def _juxta_cuts(core: str) -> list[int]:
+    """`core` 에서 관계 기호를 가진 두 식이 빈칸으로만 맞닿은 자리(빈칸 시작 위치)."""
+    cand = [m for m in _JUXTA_RE.finditer(core) if not _FUNC_TAIL_RE.search(core[:m.start()])]
+    cuts, start = [], 0
+    for k, m in enumerate(cand):
+        nxt = cand[k + 1].start() if k + 1 < len(cand) else len(core)
+        if _RELATION_RE.search(core[start:m.start()]) and _RELATION_RE.search(core[m.end():nxt]):
+            cuts.append(m.start())
+            start = m.end()
+    return cuts
+
+
 def _wrap_tokens(seg: str) -> str:
     """구분자 없는 수식 토큰을 감싼다(강한 신호가 있을 때만)."""
 
@@ -279,6 +310,11 @@ def _wrap_tokens(seg: str) -> str:
             head, core = em.group(), core[em.end():]
         if not _has_strong(core) and not (MATH_PAGE.get() and _WEAK_MATH_RE.fullmatch(core)):
             return span
+        # 그리스 글자가 낀 영어 산문은 식이 아니다(#1685). 「한국 점자 규정」 제30항(재추출 1508행) 예 `α or β` =
+        #   `.a`or`.b`(1637~1638행). 그리스 글자만 보고 구간째 감싸 `\alpha` 명령 뒤 빈칸이 먹히고(`⠨⠁⠕⠗`)
+        #   `angle` 이 `∠` 으로 바뀌었다.
+        if _PROSE_WORD_RE.search(core) and not _MATH_MARK_RE.search(core):
+            return span
         # ★ 피연산자가 구간 **밖 한글**인 연산(#941) — `반지름×3.14이다` 의 `×3.14` 는 수식이 아니라
         #   한글 사이 연산이다(「한글 점자」 제46항 예문, 재추출 2066행). 감싸면 수식 구간 앞뒤에
         #   제11항 두 칸이 붙고 뒤 조사(`이다`)까지 끊겨 `⠀⠀⠡⠼⠉⠲⠁⠙⠀⠀⠕⠊` 가 나갔다.
@@ -290,14 +326,53 @@ def _wrap_tokens(seg: str) -> str:
                 (core[0] in _BIN_OPS and "가" <= before <= "힣")
                 or (core[-1] in _BIN_OPS and "가" <= after <= "힣")):
             return span
-        # 2자 토큰은 아래첨자·이온 전하를 지닌 것만 허용(O₂·t₂·H⁺). 그 밖은 3자 임계 유지.
-        if len(core) < 3 and not (_SUB_CHARS.search(core) or _ION_CHARS.search(core)):
+        # 2자 토큰은 아래첨자·이온 전하를 지닌 것과 홑 유전자형(`Xᴬ` · `Iᴮ`, B-22)만 허용(O₂·t₂·H⁺). 그 밖은 3자 임계 유지.
+        if len(core) < 3 and not (_SUB_CHARS.search(core) or _ION_CHARS.search(core) or is_genotype(core)):
             return span
         lead = span[:len(span) - len(span.lstrip())]
         trail = span[len(span.rstrip()):]
-        return f"{lead}{head}<!수식>{normalize(core)}<!/수식>{trail}"
+        cuts = _juxta_cuts(core)
+        if cuts:
+            # 띄어 쓴 두 식(#1737) — 경계마다 잘라 식마다 따로 감싼다. 구간 전체가 수식으로 판정됐으므로 조각마다
+            # 신호를 다시 묻지 않는다(`a>0  a=0  a<0` 의 `a>0` 은 혼자서는 강한 신호가 없다. gold `a55#j  a33#j  a99#j`).
+            # 조각이 홑 유전자형이면 그 조각만 유전자형 꼴로 나간다(B-22).
+            out, last = [], 0
+            for c in cuts + [len(core)]:
+                piece = core[last:c]
+                out.append(_genotype_pieces(piece) or f"<!수식>{normalize(piece)}<!/수식>")
+                if c < len(core):
+                    ws = re.match(r"[ \t]+", core[c:]).group()
+                    out.append(ws)
+                    last = c + len(ws)
+            return lead + head + "".join(out) + trail
+        return f"{lead}{head}{_genotype_pieces(core) or f'<!수식>{normalize(core)}<!/수식>'}{trail}"
 
     return _SPAN_RE.sub(repl, seg)
+
+
+# 유전자형만 든 구간(`(XᵃXᵃ, XᵃY)` · `(AaXᴮY)`)은 괄호 · 쉼표를 글로 두고 유전자형마다 감싼다. 통째로 감싸면 괄호가 수식 괄호
+#   ⠦ … ⠴ 가 되고 구간 앞뒤에 두 칸이 붙는데, 글 괄호 안은 붙인다(원장 R-104 (나) · 제54항, B-22).
+#   토막 안 빈칸에서는 안 자른다. gold 생명과학 001 은 `Xᴬᴰ Xᵃᵈ` · `Iᴮ i` 처럼 빈칸이 낀 묵자도 한 낱말로 붙여 적는다
+#   (`,,x^(,,ad)x^(ad)` · `,i^,bi` 5 : 띄운 꼴 0).
+_GENO_SPLIT_RE = re.compile(r"([(),])")
+# 괄호 앞 번호(`3(XᴬXᵃBb)`) · 가계도의 곱하기와 번호(`(AaXᴮY) × 4`) · 쉼표 뒤 개체 이름(`XᵃYBb, Q`)은 글로 둔다.
+#   개체 이름은 gold 도 글 꼴(로마자표 · 종료표)이다.
+_GENO_TEXT_RE = re.compile(r"[\d\s×]+|[A-Z]")
+
+
+def _genotype_pieces(core: str) -> str | None:
+    pieces = _GENO_SPLIT_RE.split(core)
+    toks = [p.strip() for p in pieces[0::2] if p.strip()]
+    geno = [is_genotype(t) for t in toks]
+    if not any(geno) or not all(g or _GENO_TEXT_RE.fullmatch(t) for t, g in zip(toks, geno)):
+        return None
+    return "".join(p.replace(p.strip(), f"<!수식>{normalize(p.strip())}<!/수식>")
+                   if i % 2 == 0 and p.strip() and is_genotype(p.strip()) else p for i, p in enumerate(pieces))
+
+
+# 위첨자 뒤 가는 빈칸(U+2009)은 글자층에 남은 첨자 폭이다(`Xᴬ \u2009Y` · `Iᴮ \u2009는`). 구간이 거기서 끊겨 유전자형이 쪼개지고
+#   (`Xᴬ` · `Y` 가 따로 감싸임) 홑 첨자 토막이 글로 샌다. gold 는 붙여 적는다(`,,x^,ay`). dev · val 9곳, 모두 생명과학 001(B-22).
+_SUP_THIN_RE = re.compile(f"(?<=[{''.join(UNI_SUP)}]) ?\u2009")
 
 
 def wrap(text: str) -> str:
@@ -305,6 +380,7 @@ def wrap(text: str) -> str:
 
     이미 태그가 붙은 구간은 그대로 통과시킨다(이중 감쌈 방지).
     """
+    text = _SUP_THIN_RE.sub("", text)
     if not text or "<!수식>" not in text and not _SPAN_RE.search(text):
         return text
     out: list[str] = []

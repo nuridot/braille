@@ -37,6 +37,8 @@ class TestBareFunctionSurvives:
 class TestStructuralCommandsStillStripped:
     """구조 명령은 계속 지운다 — 이름을 남기면 본문에 쓰레기 글자가 찍힌다."""
 
-    @pytest.mark.parametrize("latex", [r"\begin", r"\left", r"\right", r"\frac", r"\quad"])
-    def test_이름이_안_남는다(self, latex):
-        assert convert_latex(latex) == ""
+    @pytest.mark.parametrize("latex, want", [(r"\begin", ""), (r"\left", ""), (r"\right", ""), (r"\quad", ""),
+                                             (r"\frac", "⣿")])
+    def test_이름이_안_남는다(self, latex, want):
+        # 서식 명령은 흔적 없이 지우고, 셈(R17 `dropped_latex`)이 세는 명령은 공통 표시 ⣿ 하나로 남긴다(#1705).
+        assert convert_latex(latex) == want

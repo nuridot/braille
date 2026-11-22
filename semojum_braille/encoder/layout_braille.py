@@ -28,7 +28,7 @@ from semojum_braille.encoder.tag_names import split_indent
 from semojum_braille.encoder.kor_math_rules import _NUMBER_INDICATOR, _DIGIT_MAP
 from semojum_braille.encoder.regulations import make_rule
 from semojum_braille.encoder.translator import _BOOK_STYLE, REF_LETTER  # 도서 관행 스위치(BRAILLE_STYLE) · 참조 문자 꼴
-from semojum_braille.encoder.symbol_rules import HIDDEN_TO_BULLET as _HIDDEN_TO_BULLET_SRC
+from semojum_braille.encoder.translator import line_head_bullet as _line_head_bullet
 from semojum_braille.schemas import BrailleOutput, RuleApplication
 
 if TYPE_CHECKING:  # 런타임 import 회피 (annotations 지연 평가)
@@ -76,8 +76,7 @@ _RULE_BOX_BORDER = "NLD-1.2.5"     # 글상자 테두리. 그리기와 근거(em
 # text 체인은 문맥을 몰라 숨김표로 변환·emit하므로 여기서 글리프·rule을 글머리로 정정한다.
 # ⚠ • 가운뎃점 분기는 지웠다(2026-08-15) — 죽은 분기였다. symbol_table이 점역 단계에서
 #   •를 먼저 글머리 셀로 바꾸므로 ⠐⠆인 채 여기까지 오지 않는다.
-# 표 정본은 symbol_rules.HIDDEN_TO_BULLET — translate_plain도 같은 표를 쓴다(2026-09-07).
-_HIDDEN_TO_BULLET = _HIDDEN_TO_BULLET_SRC
+# 표 정본은 symbol_rules.HIDDEN_TO_BULLET, 판정은 translator.line_head_bullet — translate_plain도 같은 것을 쓴다(2026-09-07 · #1670).
 _RULE_BULLET = "MCST-한글-6.14.72"   # 글머리 기호 (제72항)
 _RULE_HIDDEN_SINGLE = "MCST-한글-6.13.49"  # 숨김표 단일(제49항) — list_item 첫머리면 글머리로 정정
 
@@ -496,6 +495,23 @@ def _question_zone(body: list, meta: dict) -> dict:
     return zone
 
 
+# 정답과 해설의 문항 제목(`1 문항 주제` 꼴)도 단원명이 아닌 항목 머리다(#1693 · 원장 C-205 · C-81). gold(2027, 홀드아웃 뺌)
+#   「숫자」 머리 4단계 제목 첫 줄이 정답과 해설 5칸 1 : 3칸 55 · 본책 334 : 69 로 권이 가른다. 쪽이 정답과 해설인지는 모르므로
+#   제목 바로 뒤 두 요소 안의 해설 표지로 가린다. dev · val 에서 정답과 해설 57 걸림 · 본책 0(쪽 단위 신호는 본책 오검출이 0~68쪽).
+_ANS_EXPLAIN = ("정답이 정답인 이유", "오답이 오답인 이유", "정답 찾기", "오답 피하기", "문제 분석")
+_ONE_DIGIT_HEAD_RE = re.compile(r"^\s*\d\s+[가-힣]")
+
+
+def _answer_item_heads(body: list, meta: dict) -> frozenset:
+    """정답과 해설 문항 머리 제목 id: 한 자리 번호로 여는 3 · 4단계 제목이고 바로 뒤 두 요소 안에 해설 표지가 있다."""
+    out = set()
+    for k, bo in enumerate(body):
+        if meta.get(bo.element_id, _DEFAULT_META)[2] >= 3 and _ONE_DIGIT_HEAD_RE.match(bo.corrected_text or ""):
+            if any(m in (nx.corrected_text or "") for nx in body[k + 1:k + 3] for m in _ANS_EXPLAIN):
+                out.add(bo.element_id)
+    return frozenset(out)
+
+
 def _box_kind(line: str) -> str:
     """1단계 글상자 테두리면 'top' · 'bottom'. 속글상자(2 · 3단계) · 표 테두리(⠿⠿)는 ''(빈 줄을 안 둔다)."""
     if _is_border_line(line):
@@ -520,7 +536,9 @@ def _box_blanks(lines: list[str], off: bool) -> tuple[frozenset, bool, bool]:
     for i, ln in enumerate(lines):
         kind = _box_kind(ln)
         if kind == "top":
-            j = i - 1 if _is_title_above(lines, i - 1) else i    # 윗줄 5칸 제목은 상자에 딸린다 — 빈 줄은 그 위(#1501)
+            j = i                                                 # 윗줄 5칸 제목은 상자에 딸린다. 빈 줄은 제목 덩어리 위(#1501 · B-56)
+            while j > 0 and _is_title_above(lines, j - 1):
+                j -= 1
             if j == first:
                 lead = True
             elif lines[j - 1].strip():
@@ -543,11 +561,19 @@ def _with_box_blanks(seps: list[str], at: frozenset) -> list[str]:
 
 
 def _is_title_above(lines: list[str], i: int) -> bool:
-    """i 번 줄이 같은 요소 안 위 테두리 바로 윗줄의 5칸 제목인가(#1501 — 번역기가 테두리에 안 드는 긴 제목을 올린 줄).
+    """i 번 줄이 같은 요소 안 위 테두리 위의 5칸 제목 덩어리에 드는가(#1501 — 번역기가 테두리에 안 드는 긴 제목을 올린 줄).
 
-    `_is_box_title_line` 과 달리 32칸을 넘어도 본다. 올린 제목은 24칸을 넘는 것뿐이라 접히는 일이 흔하다."""
-    return (0 <= i < len(lines) - 1 and lines[i].startswith(_PAD * 4) and not lines[i].startswith(_PAD * 5)
-            and bool(lines[i].strip(" ⠀")) and _is_top_border(lines[i + 1]))
+    `_is_box_title_line` 과 달리 32칸을 넘어도 본다. 올린 제목은 24칸을 넘는 것뿐이라 접히는 일이 흔하다.
+    ★ B-56 — 번역기는 28칸도 넘는 제목을 5칸 줄 여럿으로 미리 나눈다(#1635, 지침 2.1.7(1)① 재추출 578행 「다음 줄의 시작은
+      첫째 줄의 시작 칸에 맞춰」). 테두리 바로 윗줄만 제목으로 보면 첫 줄이 문단 들여를 받아 7칸이 되고 두 줄 사이에 상자 머리
+      빈 줄이 끼었다(레이아웃 1lv 8 `[6, 0, 4]`). 5칸 줄이 잇달아 위 테두리에 닿으면 그 줄들이 모두 제목이다."""
+    k = i
+    while 0 <= k < len(lines) - 1 and lines[k].startswith(_PAD * 4) and not lines[k].startswith(_PAD * 5) \
+            and bool(lines[k].strip(" ⠀")):
+        if _is_top_border(lines[k + 1]):
+            return True
+        k += 1
+    return False
 
 
 # ── 문항 앞 빈 줄 ─────────────────────────────────────────────────────────────────────────
@@ -602,6 +628,108 @@ def _q_blanks(lines: list[str], corrected_text: str) -> tuple[frozenset, bool]:
     at = frozenset(i for i in heads
                    if i != filled[0] and lines[i - 1].strip(" ⠀") and not _is_top_border(lines[i - 1]))
     return at, bool(heads) and heads[0] == filled[0]
+
+
+# 점역자 주 위아래 빈 줄(#1677, 원장 C-180 · 2026-10-27 대표 결정 「지침대로」). 「점자 자료 제작 지침」 2.4.4(2)③(재추출 937행):
+#   원본에 없는 빈 줄을 「점역자 주, 주석의 위아래」에 삽입한다. 점역자 주만 든 줄(⠠⠄ 로 열고 ⠠⠄ 로 닫는 논리 줄)이 이어진
+#   덩어리의 위아래가 글이면 빈 줄을 둔다. 덩어리 안 잇단 주 사이 · 앞뒤가 빈 줄이나 테두리인 자리에는 안 둔다. 요소 머리 · 끝이면
+#   요소 앞뒤 빈 줄로 넘긴다(문항 머리 `_q_blanks` · 상자 끝과 같은 자리). 줄 가운데 든 주는 손대지 않는다. 별표 주석 묶음(1lv 33)은
+#   앱이 이웃 종류를 몰라 이 판정 밖이다(원장 C-180 꼬리). 글 갈래 요소에만 건다. 캡션 · 시각 자료의 주(`그림 생략` 등)는 그 덩어리에
+#   딸려 시각 자료 위아래 빈 줄(`_BLANK_AROUND_TYPES`)이 맡고, 캡션과 그 주 사이를 가르면 안 된다(C-139 시험). gold(2027, 홀드아웃 뺌)도
+#   홀로 선 주(QR 코드 · 편집 안내 28)는 82% 가 위에 빈 줄을 둔다. 시각 덩어리에 딸린 범례 이름표 · 설명(70)은 거의 안 둔다(원장 C-180 꼬리).
+_TN_MARK_BR = "⠠⠄"
+_TN_BLANK_TYPES = frozenset({"text", "list_item"})
+
+
+def _is_tn_line(line: str) -> bool:
+    s = line.strip(" ⠀")
+    return len(s) > 2 * len(_TN_MARK_BR) and s.startswith(_TN_MARK_BR) and s.endswith(_TN_MARK_BR) \
+        and s.count(_TN_MARK_BR) == 2
+
+
+def _tn_blanks(lines: list[str], etype: str = "text") -> tuple[frozenset, bool, bool]:
+    """점역자 주 덩어리 위아래 빈 줄 — (요소 안 빈 줄을 앞에 둘 줄 번호, 요소 머리가 주인가, 요소 끝이 주인가). 위 주석."""
+    filled = [i for i, ln in enumerate(lines) if ln.strip(" ⠀")]
+    if not filled or etype not in _TN_BLANK_TYPES:
+        return frozenset(), False, False
+    at, lead, tail = set(), False, False
+    for i in filled:
+        if not _is_tn_line(lines[i]):
+            continue
+        prev = i - 1
+        if i == filled[0]:
+            lead = True
+        elif not _is_tn_line(lines[prev]) and lines[prev].strip(" ⠀") and not _is_border_line(lines[prev]):
+            at.add(i)
+        nxt = i + 1
+        if i == filled[-1]:
+            tail = True
+        elif nxt < len(lines) and not _is_tn_line(lines[nxt]) and lines[nxt].strip(" ⠀") and not _is_border_line(lines[nxt]):
+            at.add(nxt)
+    return frozenset(at), lead, tail
+
+
+# 지문 안 참조 문자 단독 줄 앞 빈 줄(#1676, 원장 C-200 · 2026-10-27 대표 결정 「지침대로」). 「점자 자료 제작 지침」 4.1.2(1)③
+#   (재추출 2312행): "지문 안에서 참조 문자가 한 줄에 단독으로 제시된 글뭉치와 글뭉치 사이" 에 한 줄을 띈다.
+#   글상자 안에서 참조 문자만 든 줄(`(가)` · `[A]` · `㉠` · `ⓐ`)이 글뭉치 머리이면 그 앞에 빈 줄을 둔다. 첫 글뭉치(위 테두리
+#   바로 뒤)에는 안 둔다. 지문은 흔히 여러 요소에 걸치고 테두리는 첫 · 끝 요소에만 있어서, 조판이 요소를 차례로 돌며 상자
+#   깊이를 넘겨준다(`_box_depth_after`, 표 · 시각 자료 요소는 테두리 점형이 같아도 상자로 안 센다). 참조 문자 줄이 요소 첫
+#   줄이면 요소 앞 빈 줄로 넘긴다(문항 머리 `_q_blanks` 와 같은 자리).
+#   ★ 글뭉치 머리는 조항 말 그대로 「글뭉치와 글뭉치 사이」에 선 줄이라 둘을 더 본다. 조항에 적힌 낱말은 아니고 글뭉치의 뜻에서
+#   온 일반 규칙이다. ① 앞 줄이 문장 끝(`.` `?` `!` · 말줄임표, 원문 글로 판정): 앞 글뭉치가 끝났다(발췌한 지문은 말줄임표로
+#   끝나기도 한다). 문장 가운데서 끊긴 줄 뒤에 홀로 선
+#   참조 문자는 문장 속 빈칸이나 대화의 답칸이다(`… 그 결과 일본에서는` / `(가)`, `학생:` / `[A]`). ② 뒤 줄이 글: 그 글뭉치의
+#   글이 온다. 참조 문자 줄이 잇달거나(생략된 그림 이름표 `(가)` / `(나)`) 뒤가 테두리 · 점역자 주이면 글뭉치가 아니다.
+#   참조 문자 줄이 요소 끝 줄이면 뒤 줄을 못 봐 안 둔다.
+#   dev · val 제품 경로(develop 710b2b77, 셈 공용 함수로 요소를 이어 붙이고 표를 뺌)에서 상자 안 · 앞 줄이 글인 참조 문자 단독 줄은
+#   38(요소 안 1 · 요소 첫 줄 37)이고, ①② 를 지나 빈 줄이 생기는 것은 1 이다(평가 문항 지문의 둘째 글뭉치 머리). 그 자리 gold 는
+#   앞 줄이 글이고, gold(2027, 홀드아웃 뺌) 참조 문자 단독 줄 전체도 앞 줄 글 235 · 빈 줄 61 이라 이 꼴을 지지하지 않는다. 지침 조항을
+#   맞추는 고침이고(레이아웃 1lv 66) 2lv 지지는 없다(지침 축 예외, 대표 결정).
+_REF_ALONE_RE = re.compile(rf"(?:{REF_LETTER}|\([A-Za-z가-힣]\))")
+_SENT_END_RE = re.compile(r"(?:[.?!…⋯]|\.\.\.)[’”'\"」』)\]]*$")
+
+
+def _box_depth_after(lines: list[str], depth: int = 0) -> int:
+    """줄을 지난 뒤 글상자 깊이. 위 테두리에서 하나 늘고 아래 테두리에서 하나 준다(표 테두리는 위아래 짝이라 제자리)."""
+    for ln in lines:
+        if _is_border_line(ln):
+            depth = depth + 1 if _is_top_border(ln) else max(0, depth - 1)
+    return depth
+
+
+def _last_src(corrected_text: str) -> str:
+    """원문의 끝 글 줄(태그 걷음). 다음 요소의 참조 문자 단독 줄이 앞 글뭉치 끝을 볼 때 쓴다."""
+    return next((t for t in (_TAG_RE.sub("", s).strip() for s in reversed((corrected_text or "").split("\n"))) if t), "")
+
+
+def _ref_alone_blanks(lines: list[str], corrected_text: str, depth: int = 0, prev_src: str = "", prev_line: str = "",
+                      etype: str = "text") -> tuple[frozenset, bool]:
+    """지문 안 참조 문자 단독 줄 앞 빈 줄: (요소 안 빈 줄을 앞에 둘 줄 번호, 요소 앞 빈 줄). 위 주석.
+    `depth` = 요소 앞에서 열려 있던 상자 수 · `prev_src` · `prev_line` = 앞 요소의 끝 원문 줄 · 끝 점자 줄(요소 첫 줄 판정).
+    원문 줄과 점자 줄이 1:1 일 때만 찾는다(`_q_blanks` 와 같은 근거). 표 · 시각 자료 요소는 안 본다."""
+    src = _aligned_src(corrected_text, lines)
+    filled = [i for i, ln in enumerate(lines) if ln.strip(" ⠀")]
+    if etype in _BLANK_AROUND_TYPES or len(src) != len(lines) or not filled:
+        return frozenset(), False
+    txt = [_TAG_RE.sub("", s).strip() for s in src]
+    at, lead = set(), False
+    for i, ln in enumerate(lines):
+        if _is_border_line(ln):
+            depth = _box_depth_after([ln], depth)
+            continue
+        if not depth or not _REF_ALONE_RE.fullmatch(txt[i]):
+            continue
+        nxt = i + 1          # ② 뒤 줄이 그 글뭉치의 글
+        if not (nxt < len(lines) and lines[nxt].strip(" ⠀") and not _is_border_line(lines[nxt])
+                and not _REF_ALONE_RE.fullmatch(txt[nxt]) and not lines[nxt].strip(" ⠀").startswith("⠠⠄")):
+            continue
+        if i == filled[0]:   # ① 앞 글뭉치가 문장으로 끝남. 요소 첫 줄이면 앞 요소 끝을 본다
+            lead = (bool(prev_line.strip(" ⠀")) and not _is_border_line(prev_line)
+                    and bool(_SENT_END_RE.search(prev_src)))
+        elif (lines[i - 1].strip(" ⠀") and not _is_border_line(lines[i - 1])
+              and _SENT_END_RE.search(txt[i - 1])):
+            at.add(i)
+    return frozenset(at), lead
 
 
 def _is_box_title_line(line: str) -> bool:
@@ -684,6 +812,25 @@ def _tn_head(line: str, indent: int) -> int:
     return _PARA_INDENT if not indent and line.startswith("⠠⠄") else indent
 
 
+def _hung_tail(lines: list[str]) -> bool:
+    """끝 줄이 `_hang` 으로 접힌 이어지는 줄인가: 바로 윗줄이 테두리 아닌 내용 줄이고 둘 다 같은 칸(4칸 이상)에서 시작한다.
+    제목 요소가 상자 아래 테두리를 함께 달고 온 꼴(테두리 · 빈 줄 · 제목)의 제목 줄은 상자 윗줄 제목 그대로다."""
+    k = max((i for i, ln in enumerate(lines) if ln.strip(_PAD)), default=0)
+    lead = lambda s: len(s) - len(s.lstrip(_PAD))
+    return k > 0 and bool(lines[k - 1].strip(_PAD)) and not _is_border_line(lines[k - 1]) \
+        and lead(lines[k - 1]) == lead(lines[k]) >= _HEADING_DEEP_INDENT
+
+
+def _hang(indent: int, is_heading: bool, hlevel: int) -> int:
+    """이어지는 줄(32칸을 넘어 접힌 둘째 줄부터)의 앞 빈칸 수. 0 이면 1칸이다(종전).
+
+    「점자 자료 제작 지침」 2.4.2(4)(재추출 901행): 단원명이 길어 줄이 넘어가면 둘째 줄의 시작 위치를 해당 단원명의 시작 위치에
+    맞춘다(#1682, 원장 C-203). 단원명 칸(2단계 7칸 · 3단계 이하 5칸)에서 시작한 제목 줄만이다. 항목 머리(3칸)는 문단 꼴이라
+    1칸이 맞다. gold 는 책마다 갈린다(5 · 7 · 9칸 단원명 97 의 이어지는 줄: 같은 칸 53 · 1칸 43) · 지침대로(대표 결정 10-27).
+    """
+    return indent if is_heading and hlevel >= 2 and indent >= _HEADING_DEEP_INDENT else 0
+
+
 def _first_indented(lines: list[str]) -> set[int]:
     """문단 들여쓰기를 받는 줄: 테두리 안 첫 내용 줄(원장 C-01b).
 
@@ -722,11 +869,6 @@ def _page_number_braille(n: int) -> str:
     # 점자 페이지 번호 = 수표 + 숫자 (NLD 1장2절2 예 1-6: ⠼NN, 끝에 마침표 없음)
     digits = "".join(_DIGIT_MAP.get(c, c) for c in str(n))
     return f"{_NUMBER_INDICATOR}{digits}"
-
-
-def _right_align(text: str, width: int) -> str:
-    pad = max(0, width - len(text))
-    return _PAD * pad + text
 
 
 def _cell_count(text: str) -> int:
@@ -930,6 +1072,8 @@ class LayoutBraille:
     촉각 그래픽(table/chart_graph SVG)은 별도 태스크 — 미구현.
     """
 
+    _ans_heads: frozenset = frozenset()   # 정답과 해설 문항 머리 제목 id(`_answer_item_heads`). render · flatten_elements 가 세운다
+
     def layout(
         self,
         braille_outputs: list[BrailleOutput],
@@ -970,15 +1114,24 @@ class LayoutBraille:
         total = 0
         forced_total = 0
         zone = _question_zone(body, meta)          # 글상자 빈 줄 — 응답(`flatten_elements`)과 같은 판정
+        self._ans_heads = _answer_item_heads(body, meta)
+        depth = 0                                  # 요소 앞에서 열려 있던 글상자 수(응답과 같은 차례로 센다)
+        prev_src = prev_br = ""                    # 앞 요소의 끝 원문 줄 · 끝 점자 줄(참조 문자 단독 줄, `_ref_alone_blanks`)
         for bo in body:
             etype, _order, hlevel = meta.get(bo.element_id, _DEFAULT_META)
             off = zone[bo.element_id] or not bo.box_borders
-            q_lead = _q_blanks(bo.braille_lines, bo.corrected_text or "")[1]   # 조판이 줄을 접기 전에
-            el_lines, forced = self._format_element(bo, etype, hlevel, tight=off)
+            _tn_at, tn_lead, tn_tail = _tn_blanks(bo.braille_lines, etype)
+            q_lead = _q_blanks(bo.braille_lines, bo.corrected_text or "")[1] or tn_lead   # 조판이 줄을 접기 전에
+            el_lines, forced = self._format_element(bo, etype, hlevel, tight=off, box_depth=depth,
+                                                    prev_src=prev_src, prev_line=prev_br)
+            q_lead = q_lead or self._ref_lead
+            if etype not in _BLANK_AROUND_TYPES:   # 표 테두리는 글상자와 점형이 같아도 상자가 아니다
+                depth = _box_depth_after(el_lines, depth)
             if not el_lines:                       # 빈 요소는 빈 줄·태깅 없이 건너뜀
                 continue
+            prev_src, prev_br = _last_src(bo.corrected_text), next((x for x in reversed(el_lines) if x.strip(" ⠀")), "")
             _at, box_lead, box_tail = _box_blanks(el_lines, off)
-            formatted.append((hlevel, etype, el_lines, box_lead, box_tail, q_lead))
+            formatted.append((hlevel, etype, el_lines, box_lead, box_tail or tn_tail, q_lead))
             total += len(el_lines)
             forced_total += forced
 
@@ -1008,6 +1161,7 @@ class LayoutBraille:
         prev_type = ""
         page_head = True   # 아직 쪽 머리 꼬리말만 왔다(원본 쪽 첫머리)
         pending = 0    # 직전 요소가 요구한 '아래 빈 줄' — 다음 요소의 '위'와 합쳐 한 줄로 낸다
+        prev_hung = False     # 직전 요소 끝 줄이 단원명 칸으로 접힌 이어지는 줄인가. 그 조각은 상자 윗줄 제목이 아니다(#1682)
         for blk in formatted_blocks:
             hlevel, etype, el_lines = blk[:3]
             box_lead, box_tail = blk[3:5] if len(blk) >= 5 else (False, False)
@@ -1018,8 +1172,8 @@ class LayoutBraille:
             page_head = page_head and etype in _PAGE_FURNITURE
             # 위 테두리 윗줄 5칸 제목(앞 요소)은 상자에 딸린다 — 빈 줄은 그 위다.
             before, after = _block_blanks(etype, hlevel,
-                                          (box_lead and not _is_box_title_line(prev_line)) or q_lead, box_tail,
-                                          _is_inner_table(etype, el_lines))
+                                          (box_lead and not (_is_box_title_line(prev_line) and not prev_hung)) or q_lead,
+                                          box_tail, _is_inner_table(etype, el_lines))
             # 요소가 스스로 달고 온 앞뒤 빈 줄도 같은 '한 줄' 요구다. 떼어 내 before/after에 합치면
             # 경계 빈 줄과 겹칠 일이 없다.
             lead, tail = _lead_blanks(el_lines), _tail_blanks(el_lines)
@@ -1032,12 +1186,14 @@ class LayoutBraille:
             lines.extend(body)
             pending = after
             prev_type = etype
+            prev_hung = hlevel >= 2 and _hung_tail(body)
         if pending:
             lines.append("")
         return self._paginate(lines, page_no, footer, orig_page)
 
     def _format_element(
-        self, bo: BrailleOutput, etype: str, hlevel: int, *, tight: bool = False
+        self, bo: BrailleOutput, etype: str, hlevel: int, *, tight: bool = False, box_depth: int = 0,
+        prev_src: str = "", prev_line: str = "",
     ) -> tuple[list[str], int]:
         """요소 점자 줄 → 들여쓰기·정렬·32칸 브레이킹 적용. (표시 줄, 강제분리 수).
 
@@ -1049,7 +1205,12 @@ class LayoutBraille:
         내용이 없는 요소(빈 줄뿐)는 빈 결과를 반환한다.
         `tight` = 글상자 빈 줄을 안 넣는 요소(평가문제 지문 구역 · 상자 없는 요소, `_box_blanks`).
         요소 안쪽 상자 위아래 빈 줄만 여기서 넣고, 요소 머리 · 끝은 조립(`_assemble_pages`)이 넣는다.
+        `box_depth` = 요소 앞에서 열려 있던 글상자 수(지문 안 참조 문자 단독 줄, `_ref_alone_blanks`).
+        `prev_src` · `prev_line` = 앞 요소의 끝 원문 줄 · 끝 점자 줄. 요소 첫 줄 참조 문자 단독 줄의 요소 앞 빈 줄을
+        `self._ref_lead` 에 남긴다. 참조 문자 줄은 아래 `_split_ref_lines` 가 떼어 내므로 그 뒤 줄로 판정해야
+        응답(`flatten_elements` 는 `_indent_lines` 로 같은 손질을 먼저 한다)과 같다.
         """
+        self._ref_lead = False
         # 시각요소 drafts와 rule_trail 객체 공유 시 in-place 변형이 새지 않도록 분리.
         bo.rule_trail = [r.model_copy() for r in bo.rule_trail]
         if not any(ln.strip() for ln in bo.braille_lines):
@@ -1071,8 +1232,12 @@ class LayoutBraille:
         first_at = _first_indented(bo.braille_lines)
 
         orig_lines = list(bo.braille_lines)   # 조판 전 스냅샷(좌표 재매핑 기준)
+        ref_at, self._ref_lead = _ref_alone_blanks(orig_lines, bo.corrected_text or "", box_depth, prev_src, prev_line,
+                                                   etype)
         blank_at = (_box_blanks(orig_lines, tight or not bo.box_borders)[0]
-                    | _q_blanks(orig_lines, bo.corrected_text or "")[0])
+                    | _q_blanks(orig_lines, bo.corrected_text or "")[0]
+                    | _tn_blanks(orig_lines, etype)[0]
+                    | ref_at)
         # 규정 골격 요소(만화 5칸 장면/3칸 대사·시각자료 제목 5칸)는 줄마다 들여쓰기가 다르다.
         # line_indents가 줄 수와 맞으면 줄별 들여쓰기를 적용(첫 줄만 들이는 기본 동작 대체).
         per_line = (bo.line_indents
@@ -1094,10 +1259,13 @@ class LayoutBraille:
             fw = (_COLS - indent) if indent else None
             br = ([] if wordwrap_by_word()
                   else bo.break_points[li] if li < len(bo.break_points) else [])
-            broken, forced = _wrap_line(orig, br, _COLS, first_width=fw,
+            hang = _hang(indent, is_heading, hlevel)
+            broken, forced = _wrap_line(orig, br, _COLS - hang, first_width=fw,
                                         keep_indent=keep_indent)
             if indent and broken:               # 표시용 들여쓰기
                 broken[0] = _PAD * indent + broken[0]
+            if hang:                            # 이어지는 줄 칸(#1682)
+                broken[1:] = [_PAD * hang + b for b in broken[1:]]
             if is_heading and hlevel == 1:       # 1단계 제목 가운데 정렬
                 broken = [_center(b) for b in broken]
             start = len(out)
@@ -1165,41 +1333,39 @@ class LayoutBraille:
         for idx, line in enumerate(lines):
             if not line.strip():
                 continue
-            for hidden, bullet in _HIDDEN_TO_BULLET.items():
-                if not line.startswith(hidden):
-                    continue
-                if not line[len(hidden):].strip("⠀ "):
-                    # 줄에 기호 하나뿐 — 글머리가 아니라 제49항 숨김표(`_0l`, 재추출 2206~2213행)다.
-                    # 제72항 글머리 기호는 보기마다 뒤에 빈칸과 글이 온다(2879~2901행, #1557 · 원장 B-46).
-                    continue
-                lines[idx] = bullet + line[len(hidden):]
-                # 글리프 길이 변화(delta)만큼 같은 줄 뒤 좌표·break offset을 보정.
-                delta = len(hidden) - len(bullet)
-                if delta and idx < len(bo.break_points):
-                    bo.break_points[idx] = [
-                        (b - delta) if b >= len(hidden) else b
-                        for b in bo.break_points[idx]
-                    ]
-                new_trail = []
-                replaced = False
-                for r in bo.rule_trail:
-                    if (not replaced and r.rule_id == _RULE_HIDDEN_SINGLE
-                            and r.line_no == idx and r.col_start == 0):
-                        new_trail.append(make_rule(_RULE_BULLET, line_no=idx, col_start=0,
-                                                   col_end=len(bullet), tag="bullet"))
-                        replaced = True
-                    else:
-                        if delta and r.line_no == idx and r.col_start > 0:
-                            r = r.model_copy(update={
-                                "col_start": max(0, r.col_start - delta),
-                                "col_end": max(0, r.col_end - delta),
-                            })
-                        new_trail.append(r)
-                if not replaced:
+            # 줄에 기호 하나뿐이거나(#1557 · 원장 B-46) 붙은 낱말이 조사 · 단위 명사(`□의` · `○명`, #1670)면
+            # 글머리가 아니라 숨김표 · 빠짐표(`_0l`, 재추출 2206~2213행)다. 판정은 `translator.line_head_bullet`.
+            hit = _line_head_bullet(line)
+            if not hit:
+                continue
+            hidden, bullet = hit
+            lines[idx] = bullet + line[len(hidden):]
+            # 글리프 길이 변화(delta)만큼 같은 줄 뒤 좌표·break offset을 보정.
+            delta = len(hidden) - len(bullet)
+            if delta and idx < len(bo.break_points):
+                bo.break_points[idx] = [
+                    (b - delta) if b >= len(hidden) else b
+                    for b in bo.break_points[idx]
+                ]
+            new_trail = []
+            replaced = False
+            for r in bo.rule_trail:
+                if (not replaced and r.rule_id == _RULE_HIDDEN_SINGLE
+                        and r.line_no == idx and r.col_start == 0):
                     new_trail.append(make_rule(_RULE_BULLET, line_no=idx, col_start=0,
                                                col_end=len(bullet), tag="bullet"))
-                bo.rule_trail = new_trail
-                break          # 이 줄은 처리됨 → 다음 줄로
+                    replaced = True
+                else:
+                    if delta and r.line_no == idx and r.col_start > 0:
+                        r = r.model_copy(update={
+                            "col_start": max(0, r.col_start - delta),
+                            "col_end": max(0, r.col_end - delta),
+                        })
+                    new_trail.append(r)
+            if not replaced:
+                new_trail.append(make_rule(_RULE_BULLET, line_no=idx, col_start=0,
+                                           col_end=len(bullet), tag="bullet"))
+            bo.rule_trail = new_trail
 
     def _mark_item_lines(self, bo, etype: str, first_indent: int) -> None:
         """묶인 항목(①②③…)의 줄머리마다 들여쓰기를 준다.
@@ -1284,7 +1450,7 @@ class LayoutBraille:
             return tagged
         if is_heading:
             if hlevel >= 3:
-                if _ITEM_HEAD_NUM.match(bo.corrected_text or ""):
+                if _ITEM_HEAD_NUM.match(bo.corrected_text or "") or bo.element_id in self._ans_heads:
                     return _ITEM_HEAD_INDENT  # 단원명이 아닌 항목 머리 → 문단과 같은 3칸
                 return _HEADING_DEEP_INDENT  # 3·4단계 5칸
             if hlevel == 2:
@@ -1815,11 +1981,14 @@ def flatten_elements(
         )
 
     zone = _question_zone(body, meta)   # 글상자 빈 줄 — 쪽 조판(`render`)과 같은 판정(#1341)
+    lb._ans_heads = _answer_item_heads(body, meta)
     trailing = 0            # 직전 요소가 남긴 빈 줄 수 — 중복 삽입 방지
     prev_key = None         # 직전 요소 키·타입 — 연속 시각 자료 판정용
     prev_type = ""
     prev_line = ""          # 직전 요소의 마지막 내용 줄(들여쓰기 포함) — 윗줄 5칸 제목 · 연속 시각 자료 판정용
     page_head = True        # 아직 쪽 머리 꼬리말만 왔다(원본 쪽 첫머리, 문항 앞 빈 줄을 안 둔다)
+    depth = 0               # 요소 앞에서 열려 있던 글상자 수(쪽 조판 `render` 와 같은 차례로 센다)
+    prev_src = ""           # 직전 요소의 끝 원문 줄(참조 문자 단독 줄, `_ref_alone_blanks`)
     for bo in body:
         if not any(ln.strip() for ln in bo.braille_lines):
             continue        # 빈 요소는 빈 줄도 만들지 않는다
@@ -1830,7 +1999,13 @@ def flatten_elements(
         off = zone[bo.element_id] or not bo.box_borders
         blank_at, box_lead, box_tail = _box_blanks(lines, off)
         q_at, q_lead = _q_blanks(lines, bo.corrected_text or "")
-        seps = _with_box_blanks(seps, blank_at | q_at)
+        tn_at, tn_lead, tn_tail = _tn_blanks(lines, etype)
+        r_at, r_lead = _ref_alone_blanks(lines, bo.corrected_text or "", depth, prev_src, prev_line, etype)
+        seps = _with_box_blanks(seps, blank_at | q_at | tn_at | r_at)
+        q_lead, box_tail = q_lead or tn_lead or r_lead, box_tail or tn_tail
+        if etype not in _BLANK_AROUND_TYPES:   # 표 테두리는 글상자와 점형이 같아도 상자가 아니다
+            depth = _box_depth_after(lines, depth)
+        prev_src = _last_src(bo.corrected_text)
         # 쪽 첫 요소의 상자 머리 빈 줄은 안 낸다 — 쪽 조판(`_assemble_pages`)도 쪽 머리에 빈 줄을 안 두고,
         # 원본 쪽 경계(변경선) 옆 빈 줄은 원장 C-118 소관이다.
         box_lead = box_lead and prev_key is not None and not _is_box_title_line(prev_line)
