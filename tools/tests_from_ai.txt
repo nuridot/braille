@@ -293,3 +293,6 @@ test/unit_test/braille/test_qnum_math_tag_1768.py
 test/unit_test/braille/test_plain_function_notation.py
 test/unit_test/braille/test_math_ascii_ellipsis.py
 test/unit_test/braille/test_qnum_plain_math_1771.py
+# AI #1781 · #1784 (3.4.49)
+test/unit_test/braille/test_long_arrow_1780.py
+test/unit_test/braille/test_formula_unicode_space_1783.py

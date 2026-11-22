@@ -2253,6 +2253,9 @@ _LATEX_SIMPLE: dict[str, str] = {
     "\\leftrightharpoons": "⠪⠶⠕",
     "\\longrightarrow": "⠒⠕",
     "\\longleftarrow": "⠪⠒",
+    # #1780 — 긴 꼴은 짧은 꼴과 같은 기호다. 표에 없어 ⣿ 로 빠졌다(재추출 4156 ⇒ · 4164 ↔ 행).
+    "\\implies": "⠒⠒⠕", "\\Longrightarrow": "⠒⠒⠕",
+    "\\longleftrightarrow": "⠪⠒⠕",
     "\\nexists":  "⠨⠨⠢",    # ∄ (제61항 ..5)
     "\\circledcirc": "⠸⠴⠴",  # ⦾ 겹동그라미 (제15항 6호 _00)
     "\\rhd":      "⠸⠜",     # ▷ 정규부분군 (제33항 _>)
@@ -2528,6 +2531,11 @@ def _note_unknown_commands(result: str) -> None:
 # 상태: None = 맨 처음 부름(번역기 들머리가 표시를 넣고 "on" 으로 바꾼다) · "on" = 표시 중 · "off" = 셈 · 자리 탐침 중(표시 안 함).
 #   번역기 셈 함수(`dropped_*`)가 "off" 로 부른다. 수식 요소는 이 모듈을 바로 부르므로 None 에서도 표시한다.
 DROP_MARK = "⣿"
+# #1780 — 긴 꼴 화살표는 짧은 꼴과 같은 기호다(LaTeX `\iff` 가 찍는 글자가 ⟺). 기호표에 없어 ⣿ 로 빠졌다.
+#   「한국 점자 규정」 수학 재추출 4154(→ ⠒⠕) · 4156(⇒ ⠒⠒⠕) · 4164(↔ ⠪⠒⠕) · 4167(⇔ ⠪⠒⠒⠕)행.
+#   ⟸ 는 짧은 꼴 ⇐ 의 점형이 미확인이라(아래 `\Leftarrow`) 넣지 않는다. translator 글 길도 이 표를 쓴다.
+LONG_ARROWS = {"⟺": "⇔", "⟹": "⇒", "⟶": "→", "⟷": "↔"}
+_LONG_ARROW_TABLE = str.maketrans(LONG_ARROWS)
 DROP_STATE: contextvars.ContextVar = contextvars.ContextVar("DROP_STATE", default=None)
 
 
@@ -2727,6 +2735,11 @@ _BOLD_HEAD_NUM_RE = re.compile(r"^(\s*(?:\$\$|\$)?\s*(?:\\begin\s*\{array\}\s*\{
                                r"\\mathbf\s*\{\s*(\d{1,2})\s*\}(?=\s*\\q?quad)")
 
 
+# #1783 — 수식 속 유니코드 빈칸은 ASCII 빈칸과 같다. 종전엔 빈칸으로 안 다뤄 날 글자 그대로 점자 줄에 남았다
+#   (점자 블록 밖 글자). 글 길은 이미 빈칸으로 바꾼다.
+_UNI_SPACE_TABLE = str.maketrans(dict.fromkeys("\u00a0\u202f\u3000\u2028\u2029", " "))
+
+
 def convert_latex(latex: str) -> str:
     r"""LaTeX 수식 문자열 → 점자 BRF.
 
@@ -2785,10 +2798,11 @@ def convert_latex(latex: str) -> str:
     ⚠ 각 단계의 하위 내용 변환은 convert_latex를 **재귀 호출**한다(분수 분자·근호 안 등).
       재귀분은 전 파이프라인을 다 통과해 이미 완성 점자로 되돌아온다.
     """
+    latex = latex.translate(_UNI_SPACE_TABLE)
     # 0-전: MinerU 오독 복원 — _protect_text가 \text 내용을 격리하기 **전에** 고쳐야
     # 훅이 옳은 한글을 점역한다(2026-07-22. 王亡·且="또는" 자형 오독, gold 대조 확정 —
     # 수학2 p009·p010·p144. 수식 경로 한정이라 진짜 한문이 섞일 여지가 없다).
-    latex = latex.replace("王亡", "또는").replace("且", "또는")
+    latex = latex.replace("王亡", "또는").replace("且", "또는").translate(_LONG_ARROW_TABLE)
     # 보기 항목 머리 자모 마커 오독('ㄴ.' 자리의 'L.'·'七.' 등) — \text 격리 전에 ⠿+자모로.
     # gold 실측: p073·p083 '\text{L.}'↔⠿⠒·'\text{七.}'↔⠿⠔·p047 동일(2026-07-22).
     latex = re.sub(r"^\s*(?:\$\$|\$)?\s*\\text\s*\{\s*(7|T|L|E|B|七)\s*\.\s*\}",

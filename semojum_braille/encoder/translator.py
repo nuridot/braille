@@ -29,7 +29,8 @@ from functools import lru_cache
 
 from semojum_braille.encoder.kor_math_rules import (convert_latex as _convert_latex_raw, digits_to_braille,
                                           caps_phrase_run, caps_phrase_cells, bond_chain, is_genotype,
-                                          DROP_MARK as _DROP_MARK, DROP_STATE as _DROP_STATE)
+                                          DROP_MARK as _DROP_MARK, DROP_STATE as _DROP_STATE,
+                                          LONG_ARROWS as _LONG_ARROWS)
 from semojum_braille.encoder import eng_braille, inline_math
 from semojum_braille.encoder.constants import ENGLISH_GRADE1, KOREAN_GRADE1, WRAP_HYPHEN_CLOSE, WRAP_HYPHEN_OPEN
 from semojum_braille.encoder.symbol_rules import (
@@ -2990,6 +2991,7 @@ _SPECIAL_MAP = {
 #   백틱·▶◀도 정체 확증이 부족해 제외.
 _LEGACY_GLYPH_MAP = {
     "⇂": "□", "¤": "²", "‹": "³", "›": "⁴", "˘": "°", "⇨": "⇒",
+    **_LONG_ARROWS,   # #1780 긴 꼴 화살표 → 짧은 꼴(근거는 kor_math_rules.LONG_ARROWS)
 }
 _LEGACY_GLYPH_RE = re.compile("[" + "".join(_LEGACY_GLYPH_MAP) + "]")
 _SPECIAL_MAP.update(_LEGACY_GLYPH_MAP)   # sanitize 경로(다른 호출자)에도 같은 표를 건다
