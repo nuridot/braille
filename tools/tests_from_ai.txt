@@ -288,3 +288,4 @@ test/unit_test/braille/test_name_case_1685.py
 test/unit_test/braille/test_roman_slash_span_1741.py
 test/unit_test/braille/test_segment_overline_scripts.py
 test/unit_test/braille/test_slash_single_unit_1739.py
+test/unit_test/braille/test_qnum_math_tag_1768.py
