@@ -13,20 +13,22 @@ R17(점형 없는 기호) 셈이 기호를 **홀로** 점역해 보고 판정하
 import pytest
 
 from semojum_braille.encoder.translator import (
+    _translate_off,
     dropped_symbols,
     translate_tagged_text,
 )
 
 
 def _vanishes(ch: str) -> bool:
-    """글 사이에 넣었을 때 흔적 없이 사라지는가."""
-    return translate_tagged_text("가" + ch + "나") == translate_tagged_text("가나")
+    """글 사이에 넣었을 때 흔적 없이 사라지는가(표시를 끈 셈 길). 제품 길은 그 자리에 공통 표시 ⣿ 를 둔다(#1705)."""
+    return _translate_off("가" + ch + "나") == _translate_off("가나")
 
 
 @pytest.mark.parametrize("ch", ["⃞", "▲", "★", "†", "☐"])
 def test_사라지는_기호는_집계에_잡힌다(ch):
     assert _vanishes(ch), f"{ch!r} 가 더는 사라지지 않는다 — 이 시험의 전제를 다시 보라"
     assert dropped_symbols("가" + ch + "나")[ch] == 1
+    assert translate_tagged_text("가" + ch + "나") == "⠫⣿⠉"          # 제품 길: 사라진 자리에 표시 하나
 
 
 @pytest.mark.parametrize("ch", ["□", "○", "△", "■", "●", "◦"])
@@ -58,7 +60,9 @@ def test_점형이_나오는_자리는_안_센다(text):
 
 def test_자리마다_센다():
     assert dropped_symbols("▲ 첫째, 둘째 ▲ 셋째")["▲"] == 1        # 줄머리 것은 점형, 문중 것만 사라진다
-    assert dropped_symbols("정⃞답⃞")["⃞"] == 2
+    assert dropped_symbols("가⃞나")["⃞"] == 1
+    # 네모 글자가 이어진 장식 배지는 일부러 지운다(원장 C-16-3, gold 네모 없음). 빠짐이 아니라 안 센다(#1705 셈 = 표시).
+    assert "⃞" not in dropped_symbols("정⃞답⃞")
 
 
 @pytest.mark.parametrize("text,ch", [
@@ -78,6 +82,6 @@ def test_윗첨자처럼_점형이_나오는_자리는_안_센다():
 def test_중립_기호는_늘_사라진다():
     """`translator._DROP_NEUTRAL` 의 전제다. 점형이 생기면 다른 글자로 바꾼다."""
     from semojum_braille.encoder.translator import _DROP_NEUTRAL
-    assert not translate_tagged_text(_DROP_NEUTRAL).strip("⠀ ")
-    assert translate_tagged_text("가" + _DROP_NEUTRAL + "나") == translate_tagged_text("가나")
-    assert translate_tagged_text("▲" + _DROP_NEUTRAL) != translate_tagged_text("▲▲")    # 묶음 규칙에 안 걸린다
+    assert not _translate_off(_DROP_NEUTRAL).strip("⠀ ")
+    assert _translate_off("가" + _DROP_NEUTRAL + "나") == _translate_off("가나")
+    assert _translate_off("▲" + _DROP_NEUTRAL) != _translate_off("▲▲")    # 묶음 규칙에 안 걸린다

@@ -271,6 +271,35 @@ def parse_table_tags(text: str):
     return rows or None
 
 
+def split_row_titles(rows: list[list[str]]) -> list[int]:
+    """분할된 행 표(「점자 자료 제작 지침」 3.3.2(2), #1674)의 상위 행 제목 줄 번호. 그 꼴이 아니면 [].
+
+    교열 `table_opt._split_row_grid` 가 짜는 꼴이다. 행 병합은 태그에 안 남으므로 행 길이로 알아본다.
+    · 몸통(첫 행이 한 칸이면 첫 행부터)은 한 칸 행(상위 제목)과 길이 L 행(하위 행)뿐이고, 한 칸 행마다 바로 뒤에 L 행이 온다.
+    · 첫 행이 머리 행이면 길이가 L+1(하위 행 제목 열에도 제 머리가 있음) 또는 L(모서리가 두 제목 열을 덮음, L 셋 이상)이다.
+    · 첫 행이 한 칸(머리 행 없이 첫 행부터 묶음)이면 상위 제목이 둘 이상이어야 한다. 표 안 첫 줄 제목(정답 띠
+      `11 언어 종합 2 본문 90~94쪽` · 016 p0033 `〈(나) 시기 낮 길이〉`)을 상위 제목으로 안 보려는 것이다.
+    교열이 짜는 꼴과 렌더러가 5칸을 주는 꼴을 이 한 자리에서 같이 정한다. 2026-10-27 dev · val 표 태그 글 1,184 중
+    교열 전에 이 꼴에 걸리는 표는 0 이다(추출이 깨진 001 p0150 은 머리 2 · L 2 라 L 셋 조건으로 빠진다).
+    """
+    if len(rows) < 3:
+        return []
+    head = rows[0] if len(rows[0]) > 1 else None
+    body = rows[1:] if head else rows
+    width = next((len(r) for r in body if len(r) > 1), 0)
+    if width < 2 or any(len(r) not in (1, width) for r in body):
+        return []
+    if head and not (len(head) == width + 1 or (len(head) == width and width >= 3)):
+        return []
+    off = len(rows) - len(body)
+    titles = [i + off for i, r in enumerate(body) if len(r) == 1]
+    if not titles or (head is None and len(titles) < 2):
+        return []
+    if any(t + 1 >= len(rows) or len(rows[t + 1]) != width or not rows[t][0] for t in titles):
+        return []
+    return titles
+
+
 # ── 묵자 초안 표 테두리 표시 ─────────────────────────────────────────────────────
 # 엔진 `table_braille.print_layout` 이 그리고, 교열 `table_opt.parse_print_frames`(mode b)가 되읽는다.
 _PRINT_BOX_TOP, _PRINT_BOX_BOTTOM, _PRINT_RULE = "┌", "└", "├"

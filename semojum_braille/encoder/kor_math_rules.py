@@ -63,6 +63,8 @@ UNI_SUB = {"₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5
            #   **조용히 사라졌다**(⠸⠀⠀⠦⠄… — R17 경고에도 안 잡혔다). LaTeX `\log_{e}` 는 규정대로 나간다.
            "ₐ": "a", "ₑ": "e", "ₒ": "o", "ₓ": "x", "ₕ": "h", "ₗ": "l", "ₛ": "s",
            "ᵣ": "r", "ᵤ": "u", "ᵥ": "v"}
+# 수식 글자 위첨자(유전자형 `XᴬXᵃ` · `Iᴮi` 의 대립유전자, B-22). braillify 가 모르는 글자라 조용히 버렸다(`XᵃY` → `⠠⠭⠠⠽`).
+UNI_SUP.update({m: c for m, c in zip("ᵃᵇᶜᵈᵉᶠᵍʰʲᵏˡᵐᵒᵖʳˢᵗᵘᵛʷʸᶻᴬᴮᴰᴱᴳᴴᴵᴶᴷᴸᴹᴺᴼᴾᴿᵀᵁⱽᵂ", "abcdefghjklmoprstuvwyzABDEGHIJKLMNOPRTUVW")})
 _UNI_SUP_RE = re.compile(f"[{''.join(UNI_SUP)}]+")
 _UNI_SUB_RE = re.compile(f"[{''.join(UNI_SUB)}]+")
 
@@ -237,20 +239,29 @@ _SUM_RE    = re.compile(r"\\sum_\{([^{}]*)\}(?:\^\{([^{}]*)\})?")
 # ── 문자 위 기호(제23·35~38·64·65항): prefix형(선분·호·벡터)과 postfix형(바·햇·점) ──
 # \vec·\overrightarrow = 반직선/벡터 3O(⠒⠕, 제38항), \overleftrightarrow = 직선 [3O(제37항),
 # \overparen·\overarc·\wideparen = 호 @[(⠈⠪, 제36항) — 모두 본문 앞에 적는다.
+# 인자 안 중괄호는 두 겹까지 받는다(`B_{1}` · `\mathrm{BB^{\prime}}`). 안 받던 때는 명령이 남아 R17 로 버려져 선분 B₁H₁ 이
+#   곱 B₁ × H₁ 로 읽혔다(원장 B-63, #1756 — 정답해설 수학문제집 10쪽 `\overline` 179 중 47).
+_BRACE2 = r"(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*"
+_ACC_ARG = r"\{(" + _BRACE2 + r")\}"
 _ACC_PREFIX_RE = re.compile(
     r"\\(vec|overrightarrow|overleftrightarrow|overparen|overarc|wideparen)"
-    r"\s*\{([^{}]*)\}|\\vec\s*([A-Za-z])")
+    r"\s*" + _ACC_ARG + r"|\\vec\s*([A-Za-z])")
 _ACC_PREFIX_MARK = {"vec": "⠒⠕", "overrightarrow": "⠒⠕",
                     "overleftrightarrow": "⠪⠒⠕",
                     "overparen": "⠈⠪", "overarc": "⠈⠪", "wideparen": "⠈⠪"}
 # postfix형: 가로바 @c(⠈⠉, 제23항 켤레·평균 — 단 내용이 연속 대문자면 선분 제35항 → prefix),
 # 햇 @@5(⠈⠈⠢, 제64항), 점 @4(⠈⠲)·겹점 @44·물결 @@9(제65항 5호)
 _ACC_POSTFIX_RE = re.compile(
-    r"\\(bar|overline|hat|widehat|dot|ddot|tilde|widetilde)\s*\{([^{}]*)\}"
+    r"\\(bar|overline|hat|widehat|dot|ddot|tilde|widetilde)\s*" + _ACC_ARG +
     r"|\\(bar|hat|dot|ddot|tilde)\s*([A-Za-z])")
 _ACC_POSTFIX_MARK = {"bar": "⠈⠉", "overline": "⠈⠉", "hat": "⠈⠈⠢", "widehat": "⠈⠈⠢",
                      "dot": "⠈⠲", "ddot": "⠈⠲⠲", "tilde": "⠈⠈⠔", "widetilde": "⠈⠈⠔"}
-_CAPS_RUN_RE = re.compile(r"^[A-Z](?:['′⠤]?[A-Z])+['′⠤]?$")
+# 선분의 점 이름 연속(제35항) — 대문자 둘 이상, 글자마다 아래첨자 · 프라임이 붙어도 된다(`A′B′` [붙임] 3731~3734행 ·
+#   `B_{1}H_{1}`, 원장 B-63). 대문자 하나(`\overline{B_{1}}`)는 지금처럼 제23항 가로바(뒤 붙임)다.
+_PT_MARK = r"(?:\s*_\s*(?:\{[^{}]*\}|[0-9A-Za-z])|\s*\^\s*\{\s*\\prime\s*\}|['′⠤])"
+#   점 이름 뒤 위첨자 하나(`\mathrm{AB^{\prime}}^{2}` — MinerU 가 선분 제곱의 `^{2}` 를 가로바 안에 넣는다)도 선분으로 본다.
+_CAPS_RUN_RE = re.compile(rf"^(?:[A-Z]{_PT_MARK}*\s*){{2,}}(?:\^\s*(?:\{{[^{{}}]*\}}|[0-9]))?\s*$")
+_MATHFONT_RE = re.compile(r"\\math(?:rm|it|bf)\s*\{(" + _BRACE2 + r")\}")
 # 묶음 판정에서 인수 하나로 세는 앞 기호형 점형(선분 ⠈⠉ · 벡터 ⠒⠕ · ⠪⠒⠕ · 호 ⠈⠪ + 대문자표 + 글자, #1445)
 #   범위 ⠁-⠵ 는 로마자 w ⠺(U+283A) · y ⠽(U+283D)를 빼서 덧붙인다(#1502) — 빠지면 `2\vec{w}` 가 인수 하나로 잡혀 안 묶였다.
 _SEG_ATOM_RE = re.compile(r"(?:⠈⠉|⠪⠒⠕|⠒⠕|⠈⠪)⠠?⠠?[⠁-⠵⠺⠽]+")
@@ -1242,6 +1253,65 @@ def _arrow_label(m: re.Match) -> str:
     return _SP + labels.get("overset", "") + _ARROW_CELL[m.group(5)] + labels.get("underset", "") + _SP
 
 
+# ── 유전자형(「과학 점자」 제23항 · 원장 B-22) ─────────────────────────────────────────────
+# 성염색체 · ABO 유전자형(XᴬXᵃ · XᵃY · IᴬIᴮ · AaXᴮY · XᴬXᵃBb)은 대립유전자를 위첨자 ⠘ 로 적고, 바탕 글자의 대문자는
+#   제23항(재추출 4923~4925행) "대문자가 2개 이상 붙어 나올 때에는 대문자 단어표"를 따른다. 예 `RRyy` = `,,rr,'yy`(4933~4934행):
+#   단어표 범위 뒤 소문자 앞에는 대문자 종료표 ⠠⠄. 위첨자는 「수학 점자」 제18항(재추출 3528~3540행): 기호 ^ 뒤에 적고 곱은 묶음
+#   괄호 ⠷ … ⠾. 위첨자 글자는 단어표 범위 밖이라 대문자마다 ⠠ 를 단다(규정에 예가 없어 gold 관행).
+#   gold 생명과학 001: `,,x^,ax^a` · `,,x^(,,ab)y` · `,,x^,ax^ab,'b` · `,,i^,ai^,b` · `,i^,ai`(빈 대립유전자 `X⁻` = `x^_-`).
+#   바탕 대문자가 둘 이상인 유전자형의 단어표 꼴 171 : 대문자마다 ⠠ 꼴 10(4쪽).
+#   종전에는 유니코드 첨자(ᴬ · ᵃ)를 braillify 가 모르는 글자로 조용히 버렸고, LaTeX 꼴은 수식 길이 글자마다 ⠠ 를 달았다.
+#   바탕이 X · I 이고 위첨자가 로마자인 기호가 하나는 있어야 한다(`X^{2}` · `x^{a}` 는 수식 그대로).
+_GENE_SUP = r"\s*\^\s*(?:\{\s*(?:\\(?:text|mathrm)\s*\{\s*)?[A-Za-z_\-−]{1,4}\s*\}?\s*\}|[A-Za-z])"
+_GENE = rf"(?:[A-Za-z](?:{_GENE_SUP})?|_(?![{{\d]))"
+_GENO_RE = re.compile(
+    rf"(?<![A-Za-z\\{{])(?:\\mathrm\s*\{{\s*)?((?:{_GENE}\s*)*?[XI]{_GENE_SUP}(?:\s*{_GENE})*)(?:\s*\}})?(?![A-Za-z^_{{])")
+_GENE_PART_RE = re.compile(rf"([A-Za-z_])({_GENE_SUP})?")
+# 끼워 넣은 점자 둘레의 LaTeX 빈칸은 convert_latex 가 글 빈칸으로 남기므로(`\mathrm{t} I^{B}` → `t⠀⠠⠊…`) 같이 먹는다.
+_GENO_WS_RE = re.compile(rf"\s*{_GENO_RE.pattern}\s*")
+_GENE_WORD_RE = re.compile(r"[A-Za-z_]{1,4}")
+
+
+def _gene_cells(syms: list[tuple[str, str]]) -> str:
+    """(글자, 뒤에 붙일 점자) 차례를 제23항 대문자 규칙으로 적는다. 둘 이상 이어진 대문자는 단어표, 그 뒤 소문자 앞은 종료표."""
+    out: list[str] = []
+    caps = False
+    for k, (ch, tail) in enumerate(syms):
+        if ch.isupper():
+            if not caps:
+                run = 1
+                while k + run < len(syms) and syms[k + run][0].isupper():
+                    run += 1
+                caps = run > 1
+                out.append("⠠⠠" if caps else "⠠")
+            out.append(_ROMAN_CELL[ch.lower()])
+        else:
+            if caps and ch.isalpha():
+                out.append("⠠⠄")
+            caps = False
+            out.append(_ROMAN_CELL[ch] if ch.isalpha() else "⠸⠤")
+        out.append(tail)
+    return "".join(out)
+
+
+def _gene_sup(raw: str) -> str:
+    sup = re.sub(r"\\(?:text|mathrm)|[\s^{}]", "", raw)
+    if len(sup) == 1:
+        return "⠘" + _gene_cells([(sup if sup.isalpha() else "_", "")])
+    return "⠘⠷" + _gene_cells([(c if c.isalpha() else "_", "") for c in sup]) + "⠾"
+
+
+def _genotype(m: re.Match) -> str:
+    return _gene_cells([(b, _gene_sup(s) if s else "") for b, s in _GENE_PART_RE.findall(m.group(1))])
+
+
+def is_genotype(core: str) -> bool:
+    """수식 조각 하나가 통째로 유전자형인가. 글 괄호 안에서는 두 칸 없이 붙여 쓴다(원장 R-104 (나)).
+    빗금으로 이은 연관 유전자(`XᴬXᵃ/Bd/bD`)도 든다. gold 생명과학 001 `,,x^,ax^a_/,bd_/b,d`."""
+    parts = [p.strip() for p in unicode_scripts_to_latex(core).split("/")]
+    return any(_GENO_RE.fullmatch(p) for p in parts) and all(_GENO_RE.fullmatch(p) or _GENE_WORD_RE.fullmatch(p) for p in parts)
+
+
 def _normalize_latex_input(latex: str) -> str:
     """MinerU/마크다운식 LaTeX를 convert_latex가 다룰 수 있게 정규화.
 
@@ -1281,6 +1351,8 @@ def _normalize_latex_input(latex: str) -> str:
     s = _OPERATORNAME_RE.sub(lambda m: "\\" + re.sub(r"\s+", "", m.group(1)), s)
     s = _SPACED_LETTERS_RE.sub(lambda m: "{" + re.sub(r"\s+", "", m.group(1)) + "}", s)
     s = _BRACED_OP_RE.sub(lambda m: m.group(1), s)
+    # 유전자형(B-22)은 띄어 쓴 글자를 붙인 뒤에 점자로 바꾼다. 앞에서 바꾸면 `\mathrm { t } I^{B}` 의 `{ t }` 빈칸이 남아 `t⠀⠠⠊…` 가 된다.
+    s = _GENO_WS_RE.sub(_genotype, s)
     # 다자리 수 복원(2026-08-02). 낱자리로 두면 11단계가 자리마다 수표를 찍어
     # 12가 ⠼⠁⠀⠼⠃가 된다. val+dev 실측: formula 429개 중 43개(10.0%)·숫자런 87개가 해당.
     # 같은 수식 안에 `\sin 10^{\circ}`와 `1 0 ^ {\circ}`가 함께 나오는 실례(수학2)가
@@ -1726,7 +1798,7 @@ def _stage1b_accents(result: str) -> str:
         name = m.group(1) or m.group(3)
         content = m.group(2) if m.group(2) is not None else m.group(4)
         mark = _ACC_POSTFIX_MARK[name]
-        if mark == "⠈⠉" and _CAPS_RUN_RE.match(content.strip()):
+        if mark == "⠈⠉" and _CAPS_RUN_RE.match(_MATHFONT_RE.sub(r"\1", content).strip()):
             return f"⠈⠉{convert_latex(content)}"   # 선분 @c,,AB (제35항)
         inner = convert_latex(content)
         # 켤레 복소수·평균의 가로바 아래가 다항식이면 묶는다 — 제23항 1호 가(3627~3629행) `―a+bi` = `(a5bi)@c`
@@ -2414,7 +2486,7 @@ def _stage11d_strip_unknown_commands(result: str) -> str:
     """
     result = _BARE_FUNC_RE.sub(r"\1", result)
     _note_unknown_commands(result)
-    return re.sub(r"\\[a-zA-Z]+\*?", "", result)
+    return _strip_commands(result)
 
 
 # 11d · 13 이 지우는 명령 가운데 **보이는 것이 사라지는** 명령을 알리는 자리. 번역기 `dropped_latex` 가 켠다(R17).
@@ -2448,6 +2520,21 @@ def _note_unknown_commands(result: str) -> None:
             hook("\\" + m.group(1))
 
 
+# 빠진 글자 공통 표시(#1705, pm 10-28 E1~E3). 점역에서 빠지는 글자 · 명령 자리에 8점 셀 ⣿ 하나를 둔다. 6점 셀 64개는 모두
+#   규정 · 통일영어점자에서 뜻이 있어 본문과 섞인다. 8점 셀이라 고치지 않은 채 6점 BRF 로 나가면 앱 · BE 의 6점 밖 셀 알림에 걸린다.
+# 상태: None = 맨 처음 부름(번역기 들머리가 표시를 넣고 "on" 으로 바꾼다) · "on" = 표시 중 · "off" = 셈 · 자리 탐침 중(표시 안 함).
+#   번역기 셈 함수(`dropped_*`)가 "off" 로 부른다. 수식 요소는 이 모듈을 바로 부르므로 None 에서도 표시한다.
+DROP_MARK = "⣿"
+DROP_STATE: contextvars.ContextVar = contextvars.ContextVar("DROP_STATE", default=None)
+
+
+def _strip_commands(result: str) -> str:
+    """남은 명령을 지운다. 서식 명령이 아닌 것(셈이 세는 것)은 표시 셀 하나로 바꾼다."""
+    if DROP_STATE.get() == "off":
+        return re.sub(r"\\[a-zA-Z]+\*?", "", result)
+    return _UNKNOWN_CMD_RE.sub(lambda m: "" if m.group(1) in _FORMAT_CMDS else DROP_MARK, result)
+
+
 # 인자를 잃고 홀로 남은 **함수 이름** 명령. 이름 자체가 읽을 내용이라 지우면 안 된다 —
 # 규정 제51항은 "극한 기호 lim는 **lim으로 적은** 다음 범위의 시작…"이라고 이름을 그대로
 # 적게 하고, `\lim_{x \to a}` 정상 경로도 ⠇⠊⠍를 낸다. 아래 stage14가 로마자를 점형으로
@@ -2471,7 +2558,7 @@ def _stage13_cleanup(result: str) -> str:
     """
     result = _BARE_FUNC_RE.sub(r"\1", result)
     _note_unknown_commands(result)
-    result = re.sub(r"\\[a-zA-Z]+\*?", "", result)
+    result = _strip_commands(result)
     return re.sub(r"[{}]", "", result)
 
 

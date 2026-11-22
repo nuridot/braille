@@ -42,6 +42,8 @@ _AI_DATA_ONLY = {
 _ENGINE_DROPS_ICEB = {
     "test/unit_test/braille/test_rule_registry.py::TestRuleRegistry::test_registry_size",
     "test/unit_test/braille/test_rule_registry.py::TestSearchOnly::test_검색_전용은_101개",
+    # AI #1702 는 ICEB 행을 글 없이 남긴다(64). 엔진 사본은 행째 뺀다(더 좁게). 2026-11-22 동기화에서 들어온 시험
+    "test/unit_test/braille/test_rule_registry.py::TestIcebNoText::test_ICEB_조항은_글_없이_행만_둔다",
 }
 
 

@@ -1,8 +1,11 @@
 """한글 없는 영어 줄의 로마자표 다시 열기(#1223, 원장 C-164 · B-29).
 
-- C-164: 한글 꼴 화살표 ⠒⠕ 뒤 영어는 로마자표 ⠴ 를 다시 연다. gold 영어책 274/288(95%, 4권).
+- C-164: 구판 gold 영어책 4권은 영어 줄 화살표를 한글 꼴 ⠒⠕ 로 적고 뒤 영어에 로마자표 ⠴ 를 다시 열었다(274/288).
+  #1698 에서 규정형으로 돌렸다. 한글 없는 영어 산문 줄은 통째로 로마자 구간이라 화살표도 통일영어점자 꼴 ⠰⠳⠕ 이고
+  (「한국 점자 규정」 제32항 재추출 1650~1651행 위임 · UEB 3.2.1 1548~1557행) 구간이 안 끊겨 ⠴ 를 다시 열지 않는다.
+  2027 gold EBS-E26-008 영어 줄 화살표 44 곳(줄머리 2 포함)이 모두 이 꼴이다(판본 역전).
 - B-29: 띄어 쓴 줄표 · 빈칸 뒤에는 ⠴ 를 덧붙이지 않는다. gold 빈칸 뒤 0/2,261 · 줄표 뒤 12/385.
-기대값은 gold BRF 원문 줄을 그대로 옮긴 것이다(BRF ASCII → 유니코드 점자).
+기대값은 gold BRF 원문 줄을 그대로 옮긴 것이다(BRF ASCII → 유니코드 점자). 화살표 두 줄은 줄머리 `3o 0` 을 규정형 `;\\o ` 로 바꿨다.
 """
 import pytest
 
@@ -16,12 +19,12 @@ def _u(brf: str) -> str:
 
 
 @pytest.mark.parametrize("text,gold", [
-    # MS-REF-007 ans p0087 174행
-    ("→ If you turn to the left, you will", "3o 0,if y turn to ! left1 y w"),
-    # HS-REF-007 ans p0016 27행
-    ("→ wondering who had the nerve to", "3o 0wond]+ :o _h ! n]ve to"),
+    # MS-REF-007 ans p0087 174행(구판 gold `3o 0,if …`)
+    ("→ If you turn to the left, you will", ";\\o ,if y turn to ! left1 y w"),
+    # HS-REF-007 ans p0016 27행(구판 gold `3o 0wond]+ …`)
+    ("→ wondering who had the nerve to", ";\\o wond]+ :o _h ! n]ve to"),
 ])
-def test_화살표_뒤_로마자표를_다시_연다(text: str, gold: str) -> None:
+def test_영어_줄_화살표는_통일영어점자_꼴이고_로마자표를_다시_안_연다(text: str, gold: str) -> None:
     assert translate_tagged_text(text) == _u(gold)
 
 

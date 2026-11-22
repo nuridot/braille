@@ -22,6 +22,7 @@ from semojum_braille.encoder.tag_names import (  # 교열과 같이 쓰는 어�
     answer_box_parts,
     build_table_tags,
     parse_table_tags,
+    split_row_titles,
 )
 from semojum_braille.encoder.text_braille import content_rules
 from semojum_braille.encoder.translator import translate_tagged_text as _translate
@@ -380,22 +381,25 @@ def _shorten_columns(grid: list[list[str]]) -> tuple[list[list[str]], list[str]]
 _CELL_BULLET = "•"
 
 
-def _bullet_paras(cells: list[str], sep: str) -> list[str] | None:
-    """칸에 글머리가 있으면 한 행을 점자 문단들로 나눈다(위 주석). 글머리가 없거나 꺼졌으면 None."""
+def _bullet_paras(cells: list[str], sep: str, item_sep: str = "⠀⠀") -> list[str] | None:
+    """칸에 글머리가 있으면 한 행을 점자 문단들로 나눈다(위 주석). 글머리가 없거나 꺼졌으면 None.
+    `sep` 는 행 머리 뒤, `item_sep` 는 열 항목 사이 구분자다(문장 표의 세로선은 `_render_grid` 주석)."""
     if os.environ.get("TABLE_CELL_BULLET_BREAK", "1") == "0" or not any(_CELL_BULLET in c for c in cells):
         return None
     paras = [""]
     for j, cell in enumerate(cells):
         if j:
-            paras[-1] += sep if j == 1 else "⠀⠀"
+            paras[-1] += sep if j == 1 else item_sep
         lead, *items = cell.split(_CELL_BULLET)
         if lead.strip() or not items:
             paras[-1] += _translate(lead.strip()) if lead.strip() else "⠿⠿"
         label = (j == 1 and not lead.strip() and _CELL_BULLET not in cells[0]    # 이름표 바로 뒤 첫 항목(위 주석)
                  and os.environ.get("TABLE_BULLET_LABEL_ALONE", "1") == "0")
+        # 세로선 뒤 첫 항목은 그 줄에 잇는다(gold 013 p0130 `… _| • …`). 새 줄로 내리면 세로선이 줄 끝에 홀로 남는다.
+        after_vbar = j > 0 and not lead.strip() and (sep if j == 1 else item_sep) == _VBAR
         for n, it in enumerate(items):
             item = _translate(f"{_CELL_BULLET} {it.strip()}")
-            if n == 0 and label:
+            if n == 0 and (label or after_vbar):
                 paras[-1] += item
             else:
                 paras.append(item)
@@ -445,12 +449,35 @@ def _grid_width(grid: list[list[str]]) -> int:
     return w
 
 
+# ★ §3.3.1(5) 문장이 든 열 항목은 세로선으로 가른다(#1672, 원장 C-199 · 2026-10-27 대표 결정 「지침대로」).
+#   「점자 자료 제작 지침」 재추출 2080~2081행 "열 항목 중에 문장이 포함되어 칸 띄기로 항목 간 구별이
+#   어려운 경우 세로선 _|으로 열 항목을 구분하고, 세로선 앞뒤는 한 칸씩 띈다." 같은 절 (3)이 행 제목과
+#   열 항목을 따로 부르므로 세로선은 열 항목 사이에만 둔다. 첫 열도 문장이면 그 열을 열 항목으로 본다.
+#   열 제목 행은 (1) 대로 두 칸 그대로다.
+#   gold(2027 판, 홀드아웃 뺌)의 세로선 표는 「행 제목⠐⠂ 항목 ⠸⠳ 항목」(001 p0178 · 013 p0109)과
+#   「첫 열도 문장인 두 열 표의 두 열 사이」(005 p0174 · 013 p0130) 두 꼴이고, 짧은 행 제목 바로 뒤에
+#   세로선을 둔 표는 없다. gold 는 대부분의 표에서 세로선을 안 쓴다(dev · val 표 1,184 중 제품 경로에서
+#   바뀌는 표 43, 세로선 자리 156 가운데 gold 가 세로선으로 적은 것 6 · 두 칸으로 적은 것 37).
+#   그 2lv 악화는 대표 결정으로 받아들였다.
+_VBAR = "⠀⠸⠳⠀"
+_SENT_END = re.compile(r"[.?!][\"'”’)\]」』]*$")
+_SENT_WORD = re.compile(r"[가-힣A-Za-z]+")
+
+
+def _is_sentence(cell: str) -> bool:
+    """글자 낱말이 둘 이상인 글이 빈칸을 품고 마침표 · 물음표 · 느낌표(닫는 따옴표 · 괄호는 뒤에 와도 된다)로
+    끝나면 문장이다. 낱말 조건은 모르는 값 자리(`“?  ?”`, 001 p0144 가계도 표)를 물음으로 안 보려는 것이다."""
+    c = cell.strip()
+    return " " in c and len(_SENT_WORD.findall(c)) >= 2 and bool(_SENT_END.search(c))
+
+
 def _render_grid(corrected_text: str) -> list[str]:
     """지침 §3.1 표 표기(행 단위 전개, 예3-4·3-6 실측 형식, 2026-07-19 정정).
 
     위 테두리 ⠿⠛…⠿ · 아래 테두리 ⠿⠶…⠿ 안에, 각 행을 3칸(앞 빈칸 2)에서
     '행제목  값  값'으로 적는다. 값 사이는 두 칸이고, 행 머리 뒤도 같은 구분자를 쓴다
     (`_sep_word_level` — 낱말 수준이면 두 칸, 문장 수준이면 쌍점). 빈 셀 = ⠿⠿(§3.1.2(4)).
+    값 칸에 문장이 있으면 열 항목 사이는 세로선 ⠸⠳ 이다(§3.3.1(5), 위 `_VBAR` 주석).
     (구 격자형 — 전체 ⠿ 채움 테두리·세로 ⠿ 벽·행 구분선 — 은 지침 예시와 달랐다.
      layout._is_border_line이 이 테두리 형을 정식 인정해 들여쓰기 미적용도 유지된다.)
     """
@@ -475,6 +502,11 @@ def _render_grid(corrected_text: str) -> list[str]:
     grid = [[c.strip() for c in r.split("|")] for r in rows]
     if _use_record_rows(grid):
         return [top] + _record_lines(grid) + [bot]
+    # ★ §3.3.2(2) 상위 행 제목은 5칸이다(#1674, 원장 C-198). 교열 `table_opt._split_row_grid` 가 행 병합 표를
+    #   「상위 제목 한 칸 행 + 첫 열을 뺀 하위 행」으로 짜 보낸다. 태그에 병합 정보가 없으므로 그 꼴(`split_row_titles`)로
+    #   알아본다. 줄이기(§3.2.2)가 행을 채우기 전 길이로 본다.
+    title_rows = set(split_row_titles(grid))
+    src = grid      # 문장 판정(§3.3.1(5))은 줄이기 전 칸으로 한다 — §3.2.2 (4)가 값 끝 마침표를 뗀다
     # §3.2.2 — 32칸을 넘을 때만 줄인다(위 _shorten_columns 주석 참조).
     notes: list[str] = []
     if _SHORTEN and _grid_width(grid) > _COLS:
@@ -502,6 +534,10 @@ def _render_grid(corrected_text: str) -> list[str]:
         sep = _COLON
     else:
         sep = "⠀⠀" if _sep_word_level(grid) else _COLON
+    head_row = len(rows) > 1 and _has_col_headers([c.strip() for c in rows[0].split("|")])
+    body_rows = src[1:] if head_row else src
+    vbar = any(_is_sentence(c) for r in body_rows for c in r[1:])
+    first_item = vbar and any(r and _is_sentence(r[0]) for r in body_rows)
 
     lines: list[str] = [top]
     if notes:
@@ -510,18 +546,24 @@ def _render_grid(corrected_text: str) -> list[str]:
         lines.extend(_wrap_row(_translate(_TN_OPEN + ", ".join(notes) + _TN_CLOSE)))
     for k, row in enumerate(rows):
         cells = [c.strip() for c in row.split("|")]
-        paras = _bullet_paras(cells, sep)
+        indent = _ROW_INDENT
+        if k in title_rows:
+            cells, indent = cells[:1], _TITLE_INDENT     # 줄이기가 채운 빈 칸은 뺀다
+        in_body = vbar and not (k == 0 and head_row)
+        item_sep = _VBAR if in_body else "⠀⠀"
+        head_sep = _VBAR if in_body and first_item else sep
+        paras = _bullet_paras(cells, head_sep, item_sep)
         if paras is None:
             head = _translate(cells[0]) if cells[0] else "⠿⠿"
             vals = [(_translate(c) if c else "⠿⠿") for c in cells[1:]]
-            paras = [head + (sep + "⠀⠀".join(vals) if vals else "")]
+            paras = [head + (head_sep + item_sep.join(vals) if vals else "")]
         for body in paras:
             # §3.2.1 (3) — 32칸을 넘으면 나눠 적고 이어지는 줄은 두 칸 더 들여쓴다.
-            if _SHORTEN and len("⠀⠀" + body) > _COLS:
-                lines.extend(_wrap_row(body))
+            if _SHORTEN and len(_PAD * indent + body) > _COLS:
+                lines.extend(_wrap_row(body, indent))
             else:
-                lines.append("⠀⠀" + body)
-        if k == 0 and len(rows) > 1 and _has_col_headers(cells):
+                lines.append(_PAD * indent + body)
+        if k == 0 and head_row:
             lines.append(rowsep)          # 머리행과 본문 사이(실측 위치)
     lines.append(bot)
     return lines

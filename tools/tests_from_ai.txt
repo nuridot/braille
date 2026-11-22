@@ -272,3 +272,19 @@ test/unit_test/braille/test_script_num_gap.py
 test/unit_test/braille/test_box_char_roman.py
 test/unit_test/braille/test_math_hangul_terms.py
 test/unit_test/braille/test_reg73_blanks.py
+# ── 2026-11-22 동기화(AI develop 0890c089)에서 더함. 홀드아웃 gold 창 0(tools/corpus/scan_holdout_braille.py) ──
+# 뺀 것(app.schemas.layout 을 부른다): test_answer_item_head_1693 · test_continuation_indent_1682 · test_ref_alone_blank_1676 · test_tn_blank_around_1677
+test/unit_test/braille/test_dropped_marker_1705.py
+test/unit_test/braille/test_eng_line_symbols_1698.py
+test/unit_test/braille/test_eng_preference_1704.py
+test/unit_test/braille/test_eng_word_dash_1685.py
+test/unit_test/braille/test_g1_shortform_lookalike_1710.py
+test/unit_test/braille/test_genotype_sup_b22.py
+test/unit_test/braille/test_greek_caps_omicron_1680.py
+test/unit_test/braille/test_greek_prose_1685.py
+test/unit_test/braille/test_inline_math_split_1737.py
+test/unit_test/braille/test_math_circled_marker_1701.py
+test/unit_test/braille/test_name_case_1685.py
+test/unit_test/braille/test_roman_slash_span_1741.py
+test/unit_test/braille/test_segment_overline_scripts.py
+test/unit_test/braille/test_slash_single_unit_1739.py

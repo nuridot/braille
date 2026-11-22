@@ -10,8 +10,8 @@
       "NISE": "2025년도 개정 시각장애학생용 점자교과서 및 교수학습 자료 제작 지침"
     },
     "extracted_at": "2026-05-30",
-    "note": "contents 는 규정 원문 발췌(첫 문장). 자동 추출 후 검수.",
-    "schema": "rule_id → {source, publisher, version, section{Part?·Chapter?·Section?·Paragraph?·Subparagraph?·Item?}, rule_name, contents, default_tag}. section 은 없는 위계의 key 를 넣지 않는다. rule_name 은 위계 최하단 명칭. supported 는 선택 필드다. 없으면 점역 지원이고, false 면 점역 미지원 · 검색 전용이다.",
+    "note": "contents 는 규정 원문 발췌(첫 문장). 자동 추출 후 검수. ICEB 64항은 조항 글이 CC BY-NC-ND 2.5 AU 라 contents 를 비우고 source_line(정본 파일:시작-끝 행)만 둔다(#1700). 지운 글은 git 이력(#1548)에 남는다.",
+    "schema": "rule_id → {source, publisher, version, section{Part?·Chapter?·Section?·Paragraph?·Subparagraph?·Item?}, rule_name, contents, source_line?, default_tag}. section 은 없는 위계의 key 를 넣지 않는다. rule_name 은 위계 최하단 명칭. supported 는 선택 필드다. 없으면 점역 지원이고, false 면 점역 미지원 · 검색 전용이다.",
     "migrated_at": "2026-08-31",
     "search_only": {
       "decision": "R-94 대표 지시(2026-10-24): 음악 · 국제음성기호는 점역하지 않고, 점역사가 규정을 찾아볼 수 있게 검색만 되게 한다.",

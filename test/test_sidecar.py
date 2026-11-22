@@ -174,9 +174,11 @@ def test_영어_1급은_약자_없이_적고_로마자표를_생략하지_않는
 
 
 def test_빠진_글자를_AI_쪽_플래그와_같은_갈래로_알린다():
-    """#34. 점자 기호가 없어 조용히 빠진 글자. 기호가 생기면 이 시험의 글자를 다른 것으로 바꾼다."""
+    """#34. 점자 기호가 없어 빠진 글자. 기호가 생기면 이 시험의 글자를 다른 것으로 바꾼다.
+    3.4.47 부터 빠진 자리마다 공통 표시 ⣿ 하나를 둔다(AI #1705 · #1708, pm 10-28). 셈(`dropped`) 합 = ⣿ 수."""
     r = sidecar.translate("가▶나")
-    assert r["cells"].lstrip("⠀") == "⠫⠉"
+    assert r["cells"].lstrip("⠀") == "⠫⣿⠉"
+    assert r["cells"].count("⣿") == sum(d["count"] for d in r["dropped"])
     assert r["dropped"] == [{"text": "▶", "count": 1, "flag": "R17"}]
     assert sidecar.translate("★★★★☆")["dropped"] == [{"text": "★", "count": 4, "flag": "R17"}]
     assert sidecar.translate("")["dropped"] == [{"text": "", "count": 1, "flag": "R15"}]
@@ -299,20 +301,22 @@ def test_판_번호는_한_곳에서_읽는다():
     assert re.fullmatch(r"\d+\.\d+\.\d+", __version__)
 
 
-@pytest.mark.parametrize("text", ["😀", "١٢٣", "ང"])
-def test_점자로_옮길_글자가_없는_요소는_점역_못_함으로_온다(text):
-    """#52. 종전 사이드카는 `_translate_one` 을 바로 불러 이런 요소가 빈 cells 로 조용히 사라졌다(dropped 도 비었다).
-    AI 서버 체인(`safe_translate`)처럼 점역자 주 '점역 못 함'으로 바꾸고 blocked 를 참으로 낸다."""
-    from semojum_braille.encoder.isolation import blocked_braille
+@pytest.mark.parametrize("text", ["😀", "١٢٣", "ང", "大韓民國"])
+def test_점자로_옮길_글자가_없는_요소는_빠짐_표시로_온다(text):
+    """#52 는 이런 요소를 '점역 못 함'(blocked)으로 바꿨다. 3.4.47 부터는 AI 서버처럼(#1705 · #1708) 빠진 글자마다 ⣿ 를
+    찍으므로 0셀이 아니고 blocked 는 거짓이다. 대신 `dropped` 가 그 글자를 세고, 셈 합 = ⣿ 수 = 글자 수다.
+    한자만 든 요소(종전 빈 cells, 도서 관행)도 같은 길로 간다 — pm 10-28 E1~E3 결정."""
     r = sidecar.translate(text)
-    assert r["blocked"] is True
-    assert r["cells"].lstrip("⠀") == blocked_braille()
+    assert r["blocked"] is False
+    assert r["cells"].lstrip("⠀") == "⣿" * len(text)
+    assert sum(d["count"] for d in r["dropped"]) == len(text)
 
 
 def test_한자만_있는_요소와_보통_글은_blocked_가_아니다():
-    """한자만 있는 요소는 빈 출력이 정답이다(도서 관행, isolation._CJK_RE). 보통 글은 종전과 같은 점자다."""
+    """한자만 있는 요소는 '점역 못 함'이 아니다(isolation._CJK_RE). 3.4.47 부터 빈 cells 가 아니라 한자마다 ⣿ 다(위 시험).
+    보통 글은 종전과 같은 점자다."""
     han = sidecar.translate("大韓民國")
-    assert han["blocked"] is False and han["cells"] == ""
+    assert han["blocked"] is False and han["cells"].lstrip("⠀") == "⣿⣿⣿⣿"
     ok = sidecar.translate("대한민국")
     assert ok["blocked"] is False and ok["cells"] == "⠀⠀⠊⠗⠚⠒⠑⠟⠈⠍⠁"
 
@@ -353,9 +357,10 @@ def test_꼬리말은_로마자_강제가_저절로_켜진다():
 
 
 def test_force_roman_도_점역_못_한_요소는_드러낸다():
-    """force_roman 길도 safe_translate 를 지난다(#52 와 같은 판정)."""
+    """force_roman 길도 safe_translate 를 지난다(#52 와 같은 판정). 3.4.47 부터는 빠짐 표시 ⣿ 와 `dropped` 로 드러난다."""
     r = sidecar.translate("😀", "header_footer", force_roman=True)
-    assert r["blocked"] is True
+    assert r["blocked"] is False and "⣿" in r["cells"]
+    assert r["dropped"] == [{"text": "😀", "count": 1, "flag": "R17"}]
 
 
 def _표(*rows):

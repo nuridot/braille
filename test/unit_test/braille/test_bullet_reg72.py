@@ -69,6 +69,15 @@ def test_lone_shape_is_hidden_mark(korean: str, reg_brf: str) -> None:
     assert translate_plain(korean) == _reg(reg_brf)
 
 
+@pytest.mark.parametrize("korean,reg_brf", [
+    # #1670. 기호 뒤에 빈칸 없이 글자가 붙으면 글머리가 아니라 숨김표 · 빠짐표다.
+    # 기대값은 제49항 예시 "모집 인원: ○명"(재추출 2304~2305행)의 `○명` 부분 `_0le]`.
+    ("○명 모집", "_0le]"),
+])
+def test_attached_shape_is_hidden_mark(korean: str, reg_brf: str) -> None:
+    assert translate_plain(korean).startswith(_reg(reg_brf)), translate_plain(korean)[:8]
+
+
 def test_lone_shape_in_layout_keeps_tail() -> None:
     """본문 경로(`_apply_bullet_marker`)도 같다. 뒤에 글이 있는 줄만 글머리가 된다."""
     from uuid import uuid4

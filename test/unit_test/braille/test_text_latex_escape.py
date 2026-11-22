@@ -25,5 +25,6 @@ def test_달러는_규정_꼴():
 
 def test_한_줄의_이스케이프_달러_둘은_수식_구분자가_아니다():
     # 영어 듣기 대본 꼴 `Admission is \$10 for adults, \$5 for teens.` — 두 `\$` 사이가 수식으로 짝지어져 깨졌다.
+    # 한글 없는 영어 산문 줄이라 달러는 UEB 3.10(1734~1745행 `$6` = `@s#f`) 꼴 ⠈⠎ 다(#1698).
     out = _tr("Admission is \\$10 for adults, \\$5 for teens.")
-    assert out.count("⠴⠈⠎") == 2 and "⠸⠡" not in out
+    assert out.count("⠈⠎⠼") == 2 and "⠴⠈⠎" not in out and "⠸⠡" not in out

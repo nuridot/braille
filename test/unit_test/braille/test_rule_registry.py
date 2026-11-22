@@ -124,3 +124,15 @@ class TestSearchOnly:
             v = _REGS[rid]
             assert v["source"] and v["publisher"] and v["version"] and v["rule_name"] and v["contents"], rid
             assert v["section"], rid
+
+
+class TestIcebNoText:
+    """#1700: 「통일영어점자 규정」(ICEB) 조항 글은 CC BY-NC-ND 2.5 AU 라 싣지 않는다. 번호 · 제목 · 원문 행만 둔다."""
+
+    def test_ICEB_조항은_글_없이_행만_둔다(self):
+        iceb = {k: v for k, v in _REGS.items() if k.startswith("ICEB-")}
+        assert len(iceb) == 64
+        for rid, v in iceb.items():
+            assert v["contents"] == "", rid
+            assert v["source_line"].startswith("통일영어점자 규정_UEB2013.txt:"), rid
+            assert v["rule_name"] and v["section"], rid
