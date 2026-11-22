@@ -289,3 +289,7 @@ test/unit_test/braille/test_roman_slash_span_1741.py
 test/unit_test/braille/test_segment_overline_scripts.py
 test/unit_test/braille/test_slash_single_unit_1739.py
 test/unit_test/braille/test_qnum_math_tag_1768.py
+# AI #1764 · #1760 · #1772 (3.4.48)
+test/unit_test/braille/test_plain_function_notation.py
+test/unit_test/braille/test_math_ascii_ellipsis.py
+test/unit_test/braille/test_qnum_plain_math_1771.py

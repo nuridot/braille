@@ -1860,6 +1860,32 @@ _QNUM_MATH_TAG = r"[^\S\n]+<!수식>"
 #   앞처리 순서를 바꾸면 여기부터 본다(2026-10-25 #1508 · #1519 에서 두 번 걸린 자리).
 _QNUM_RE = re.compile(
     rf"^(\d)(?!{_QNUM_QUANTITY})(?!{_QNUM_COMPARE})(?!{_QNUM_CODE})(?!{_QNUM_MATH_TAG})(?=\s+(?![{_QNUM_NOT_BODY}])\S)")
+
+
+def _qnum_sub(text: str) -> str:
+    """문항 번호 마침표(_QNUM_RE)를 붙이되, 번호 뒤 첫 토막이 **구분자 없는 평문 수식**이면 붙이지 않는다.
+
+    ★ 2026-11-22 열두째(원장 C-41 부록9, #1771). 여섯째(`$`) · 열한째(`<!수식>`)는 구분자가 있는 수식만 막아
+    `  1 x+1=2` · `9 ∠AOB=α라 하면` 은 ⠼⠁⠲ 를 받았다. 「점자 도서 제작 지침」 제2장 7. 1)(1)(재추출 1247행) 본문의 번호
+    체계는 원본 자료의 형태를 따른다(지침, 규정 본문 조항 아님). gold 009 줄머리 '번호+두 칸(수식)' 8 : '번호+마침표+두 칸' 0.
+    수식 판정은 점역과 같은 `inline_math.wrap`(쪽 문맥 `MATH_PAGE` 포함)이다. 첫 토막이 화학식 토큰(`CO₂`)이면 gold 근거가
+    없어 종전대로 마침표를 붙인다.
+    """
+    #   ⚠ 마침표만 빼면 번호가 뒤 수식 구간에 빨려 들어간다(`1 x+1=2` → 계수 1x 인 `⠼⠁⠭⠢…`). `$` 길은 구분자가 번호를 떼어
+    #   준다. 그래서 첫 수식 토막을 `<!수식>` 태그로 감싸 넘긴다 — 열한째(`_QNUM_MATH_TAG`)가 마침표를 막고 번호와 수식이
+    #   두 칸으로 갈린다(`$` 꼴과 같은 점자).
+    m = _QNUM_RE.match(text)
+    if m:
+        eol = text.find("\n", m.end())
+        eol = len(text) if eol < 0 else eol
+        gap = re.match(r"[^\S\n]*", text[m.end():eol]).group()
+        # 번역기 안과 같은 차례(반응식 경계 → `$…$` → 평문 수식, `translate_tagged_text` 앞처리 · #1759 `_formula_view`).
+        #   차례를 어기면 같은 줄의 `$…$` 를 평문 탐지가 먼저 먹는다(`log $\\sqrt[3]{24}$`).
+        wrapped = inline_math.wrap(_normalize_inline_math(inline_math.chem_chains(text[m.end() + len(gap):eol])))
+        head = re.match(r"<!수식>(.*?)<!/수식>", wrapped, re.DOTALL)
+        if head and not _chem_token(head.group(1)):
+            return text[:m.end()] + gap + wrapped + text[eol:]
+    return _QNUM_RE.sub(r"\1.", text)
 # ★ 2026-09-08 일곱째 — **시각 자료 설명·전사는 이 규칙을 아예 안 탄다**(원장 C-41,
 #   `qnum_period=False`). 위 여섯 갈래는 "번호 뒤에 무엇이 오나"로 갈랐지만, 뒤가 한글인
 #   `1 태양을 중심으로 지구가…`(흐름도 개조식 항목)는 본책 단원 번호와 글자로 구분되지
@@ -1948,7 +1974,7 @@ def _apply_book_style(text: str, *, qnum_period: bool = True) -> str:
     if _BRACKET_BOOK_STYLE:              # 기본 꺼짐 — 대괄호는 규정 제49항 셀 그대로 나간다
         text = _SRC_BRACKET_RE.sub(_src_bracket_repl, text)
     if qnum_period:
-        text = _QNUM_RE.sub(r"\1.", text)
+        text = _qnum_sub(text)
     text = _CIRCLED_RE.sub(
         lambda m: (_circled_braille(m.group()) if m.group() in _CIRCLED_PLAIN
                    else _CIRCLED[m.group()]), text)
@@ -4986,7 +5012,7 @@ def translate_with_breaks(text: str, *, force_roman: bool = False,
     text = _LINE_HEAD_BULLET_RE.sub(r"\1• ", text)   # 줄머리 글머리 뒤 한 칸(제72항)
     text = isolate_border_tags(text)
     if qnum_period:
-        text = _QNUM_RE.sub(r"\1.", text)
+        text = _qnum_sub(text)
     # ★ '만을\n에서' 소실 구멍·개행 낀 괄호는 줄 단위 관행 정규화가 못 잡는다 —
     #   요소 전체 수준에서 선적용(이 개행은 원문 구조가 아니라 추출 산물).
     text = _BOGI_GAP_RE.sub(r"\1 ‘보기’\2", text)
