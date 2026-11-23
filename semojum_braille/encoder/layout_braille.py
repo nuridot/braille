@@ -401,6 +401,8 @@ from semojum_braille.encoder.constants import BORDER_LEFT_FILL as _BORDER_LEFT_F
 # 위계별 테두리 (start_cap, fill, end_cap) — 공용 표(`constants.BOX_LEVELS`, 근거 행 번호도 거기).
 # 위계는 추출이 단다(`pdf_analyzer.tag_boxed_elements` 의 사각형 깊이 → `<!상자2>`).
 from semojum_braille.encoder.constants import BOX_LEVELS as _BOX_LEVELS  # noqa: E402
+from semojum_braille.encoder.constants import BOX_MARKER as _BOX_MARKER, BOX_STYLE as _BOX_STYLE  # noqa: E402 — 글상자 글자 표지 꼴(#1795)
+_BOX_MARKER_HEADS = tuple(_BOX_MARKER.values())
 
 
 # 테두리 줄 양 끝 캡: 1단계 ⠿, 위계 2·3단계 위 ⠖…⠲ / 아래 ⠓…⠚ (NLD-1.2.5(3)·(5))
@@ -809,7 +811,13 @@ def _tn_head(line: str, indent: int) -> int:
     줄 260 중 caption 228). gold 주표 머리줄 앞 빈칸: 2칸 921 · 4칸 97 · 0칸 1(dev · val). 논리 줄 머리의 ⠠⠄ 는 주표를
     여는 자리뿐이다(닫는 주표는 줄 끝에 온다). 0칸이 아닌 들여쓰기(5칸 제목 · 줄별 들여쓰기)는 그대로 둔다.
     """
-    return _PARA_INDENT if not indent and line.startswith("⠠⠄") else indent
+    return _PARA_INDENT if not indent and (line.startswith("⠠⠄") or _is_box_marker(line)) else indent
+
+
+def _is_box_marker(line: str) -> bool:
+    """글자 표지 꼴(#1795, `box_style="marker"`)의 `[글상자]` · `[글상자 끝]` 줄. 테두리처럼 문단 들여쓰기 자리를 차지하지 않고,
+    제 줄 3칸에서 시작한다(`_tn_head`). 016 gold 표지 줄 554 가 모두 3칸이고, 여는 표지 다음 내용 줄도 3칸이다."""
+    return _BOX_STYLE.get() == "marker" and line.lstrip(_PAD).startswith(_BOX_MARKER_HEADS)
 
 
 def _hung_tail(lines: list[str]) -> bool:
@@ -840,11 +848,11 @@ def _first_indented(lines: list[str]) -> set[int]:
     """
     # 테두리 윗줄 5칸 제목(#1501)은 제 칸을 들고 오므로 문단 들여쓰기를 안 받는다 — 받는 줄은 테두리 안 첫 줄이다.
     idx = [i for i, ln in enumerate(lines)
-           if ln.strip() and not _is_border_line(ln) and not _is_title_above(lines, i)]
+           if ln.strip() and not _is_border_line(ln) and not _is_box_marker(ln) and not _is_title_above(lines, i)]
     if not idx:
         return set()
     out = {idx[0]}
-    if (len(idx) > 1 and idx[0] > 0 and _is_border_line(lines[idx[0] - 1])
+    if (len(idx) > 1 and idx[0] > 0 and (_is_border_line(lines[idx[0] - 1]) or _is_box_marker(lines[idx[0] - 1]))
             and _BODY_TITLE_CELLS_RE.match(lines[idx[0]])):
         out.add(idx[1])
     return out

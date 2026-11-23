@@ -70,3 +70,13 @@ KOREAN_GRADE1: ContextVar[bool] = ContextVar("korean_grade1", default=False)
 #   (`layout_braille._combine_choice_lines`). 켜면 「점자 도서 제작 지침」 3장 3절 2. 4)(3)④(재추출 3457~3458행)
 #   "초등학교 이하의 학생들을 위해 제작되는 문제 형식의 점자 자료" 처럼 합치지 않는다. 쪽 단위 문맥 값이다.
 CHOICES_ONE_PER_LINE: ContextVar[bool] = ContextVar("choices_one_per_line", default=False)
+
+# 글상자 표시 꼴(#1795, 조판꼴 설정 설계서 §10 `box_style`) — 점역사가 문서를 올릴 때 고른다. 기본 "border" = 지금 동작
+#   (테두리 `⠿⠛…⠿` · `⠿⠶…⠿`, 「점자 도서 제작 지침」 1장 5. 2)(재추출 392~397행)). "marker" 면 위 테두리 태그를 글자 표지
+#   `[글상자]`(제목은 같은 줄에 한 칸 띄어), 아래 테두리 태그를 `[글상자 끝]` 으로 낸다. 지침에 없는 책 관행이다(원장
+#   「책 관행 묶음 · 세계지리(016)」: 016 은 상자 263개를 모두 이 꼴로 적고, 묵자에는 다른 책과 같은 상자가 있다). 쪽 단위 문맥 값이다.
+BOX_STYLE: ContextVar[str] = ContextVar("box_style", default="border")
+# 글자 표지 꼴의 위 · 아래 표지 셀열. 016 gold 표지 줄 277쌍이 모두 이 둘이고 위계(2 · 3단계) 꼴은 없다(겹친 상자 0).
+#   대괄호 ⠦⠆ … ⠰⠴ 는 「한국 점자 규정」 문장부호표(재추출 2164~2169행). 제 줄 3칸에서 시작하고 둘레 빈 줄을 안 둔다(016 gold:
+#   앞 빈 줄 24 · 뒤 3 / 277).
+BOX_MARKER = {"top": "⠦⠆⠈⠮⠇⠶⠨⠰⠴", "bottom": "⠦⠆⠈⠮⠇⠶⠨⠀⠠⠈⠪⠦⠰⠴"}

@@ -20,7 +20,7 @@ from semojum_braille.assist import (BRAILLE_PAGE_TAG, CHAPTER_TAG, ORIG_PAGE_TAG
 from semojum_braille.brf import parse_brf
 from semojum_braille.decoder import decode
 from semojum_braille.encoder import inline_math
-from semojum_braille.encoder.constants import CHOICES_ONE_PER_LINE, ENGLISH_GRADE1, KOREAN_GRADE1
+from semojum_braille.encoder.constants import BOX_STYLE, CHOICES_ONE_PER_LINE, ENGLISH_GRADE1, KOREAN_GRADE1
 from semojum_braille.encoder.isolation import is_blocked_braille, safe_translate
 from semojum_braille.encoder.layout_braille import flatten_elements
 from semojum_braille.encoder.table_braille import TableBraille
@@ -91,7 +91,8 @@ def _roman_one(opt: LLMOutput):
 def translate(text: str, etype: str = "text", hlevel: int = 0,
               korean_grade: int = 2, english_grade: int = 2, math_page: bool = False, split_choices: bool = False,
               render_mode: str = "", tn_text: str = "", box_level: int = 0, force_roman: bool = False,
-              blank_lines: bool = True, order: int = 1, _page: list | None = None) -> dict | None:
+              blank_lines: bool = True, order: int = 1, _page: list | None = None,
+              box_style: str = "border") -> dict | None:
     """요소 하나 → `flatten_elements` 가 내는 요소 본문(앞뒤 빈 줄 뺀 것, 32칸으로 안 접음) + 줄을 바꿔도 되는 자리
     + 점자에서 빠진 글자 + 점역 못 한 요소인가.
 
@@ -118,6 +119,8 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     `korean_grade` · `english_grade` 는 급수다(1 정자 · 2 약자, 0 은 2 로 읽는다. V4 가이드 · proto 10 · 11).
     `split_choices` 는 선택지를 한 줄에 하나씩 적는다(proto 12, 안 보내면 짧은 선택지를 합친다). 엔진 문맥 값을
     이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이 다음 요청으로 새면 안 된다(#34).
+    `box_style` 은 글상자 표시 꼴이다(#138, AI #1799). `"border"`(기본) 는 테두리, `"marker"` 는 글자 표지
+    `[글상자]` … `[글상자 끝]` 이다(조판꼴 설정 설계서 §10). `split_choices` 와 같이 이 호출 동안만 켠다.
 
     묵자(태그 뺀 글자)가 1,000자를 넘으면 `TOO_LONG`, `<!수식>` 이 10중첩 또는 1,000자를 넘으면 `BAD_LATEX`
     (`SidecarError`). 응답 `unknown_tags` 는 엔진이 모르는 태그 이름이다(점역에서는 지운다).
@@ -167,7 +170,8 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
         text = apply_indent_tags(_body_txt, [_inds[0]] + [0] * (len(_inds) - 1))
     opt = LLMOutput(element_id=uuid.uuid4(), corrected_text=text, routing_tier="ZERO")
     bo, el = _run(opt, _roman_one if force_roman else _TB._translate_one, etype, hlevel,
-                  korean_grade, english_grade, math_page, split_choices, line_indents=_inds, order=order)
+                  korean_grade, english_grade, math_page, split_choices, line_indents=_inds, order=order,
+                  box_style=box_style)
     out = {"dropped": _dropped(text), "blocked": is_blocked_braille(bo.braille_lines),   # AI 서버 검토 표시(C2 · R1)와 같은 판정
            "unknown_tags": unknown}
 
@@ -184,12 +188,12 @@ def translate(text: str, etype: str = "text", hlevel: int = 0,
     if _page is not None:                # `translate_page` 가 쪽 요소를 모아 한 번에 편다
         _page.append((bo, el, _finish))
         return None
-    with _ctx(korean_grade, english_grade, math_page, split_choices):
+    with _ctx(korean_grade, english_grade, math_page, split_choices, box_style):
         return _finish(_flatten_one(bo, el))
 
 
 def translate_page(elements: list[dict], korean_grade: int = 2, english_grade: int = 2,
-                   math_page: bool = False, split_choices: bool = False) -> dict:
+                   math_page: bool = False, split_choices: bool = False, box_style: str = "border") -> dict:
     """원본 쪽 요소 목록 → 요소마다 점역 결과. **빈 줄까지 서버 조판과 똑같이 낸다**(#123).
 
     `translate` 는 요소 하나만 받아 이웃을 모른다. 그래서 세 가지를 할 수 없었다.
@@ -204,7 +208,7 @@ def translate_page(elements: list[dict], korean_grade: int = 2, english_grade: i
 
     요소 하나의 칸은 `translate` 와 같다(`text` · `type` · `heading_level` · `render_mode` · `tn_text` ·
     `box_level` · `force_roman`). 더 받는 칸은 `id`(응답에 되돌려 준다, 없으면 차례 번호)와 `order`
-    (읽기 순서, 없으면 목록 차례)다. 급수 · 수식 쪽 · 선택지 한 줄은 쪽 전체에 한 번만 준다.
+    (읽기 순서, 없으면 목록 차례)다. 급수 · 수식 쪽 · 선택지 한 줄 · 글상자 표시 꼴은 쪽 전체에 한 번만 준다.
 
     앞뒤 빈 줄은 `cells` 에 **이미 합쳐져** 있다(`translate` 의 `blank_lines: true` 와 같은 꼴, 뒤 빈 줄은
     마지막 줄을 끝내는 개행 하나가 더 붙는다). `prefix_rows` · `suffix_rows` 도 같이 내지만 합친 **뒤**
@@ -216,7 +220,7 @@ def translate_page(elements: list[dict], korean_grade: int = 2, english_grade: i
     results: list[dict | None] = [None] * len(elements)
     pending: list[tuple] = []       # (BrailleOutput, 요소 메타, 응답 조립 닫힘꼴)
     slots: list[int] = []           # pending 차례 → results 자리
-    with _ctx(korean_grade, english_grade, math_page, split_choices):
+    with _ctx(korean_grade, english_grade, math_page, split_choices, box_style):
         for i, el in enumerate(elements):
             if not isinstance(el, dict):
                 raise SidecarError("BAD_FIELD", f"elements[{i}] 가 객체가 아니다")
@@ -225,13 +229,13 @@ def translate_page(elements: list[dict], korean_grade: int = 2, english_grade: i
                             korean_grade, english_grade, math_page, split_choices,
                             el.get("render_mode") or "", el.get("tn_text") or "",
                             int(el.get("box_level") or 0), _flag(el, "force_roman"),
-                            blank_lines=True, order=_order_arg(el, i), _page=pending)
+                            blank_lines=True, order=_order_arg(el, i), _page=pending, box_style=box_style)
             if res is not None:     # 조판 태그만 든 요소 — 펼 것이 없다
                 results[i] = res
             elif len(pending) > before:
                 slots.append(i)
     # ★ 쪽 요소를 **한 번에** 편다. 이웃을 보는 빈 줄 판정이 여기서 서버와 같아진다.
-    with _ctx(korean_grade, english_grade, math_page, split_choices):
+    with _ctx(korean_grade, english_grade, math_page, split_choices, box_style):
         flat = flatten_elements([bo for bo, _, _ in pending],
                                 SimpleNamespace(elements=[e for _, e, _ in pending]))
         for at, (bo, _el, finish) in zip(slots, pending):
@@ -333,15 +337,17 @@ def table(source: str, render_mode: str = "", tn_text: str = "", box_level: int 
 
 
 @contextlib.contextmanager
-def _ctx(korean_grade: int = 2, english_grade: int = 2, math_page: bool = False, split_choices: bool = False):
-    """엔진 문맥 값(한글 정자 · 영어 정자 · 수식 쪽 · 선택지 한 줄)을 이 블록 동안만 켠다.
+def _ctx(korean_grade: int = 2, english_grade: int = 2, math_page: bool = False, split_choices: bool = False,
+         box_style: str = "border"):
+    """엔진 문맥 값(한글 정자 · 영어 정자 · 수식 쪽 · 선택지 한 줄 · 글상자 표시 꼴)을 이 블록 동안만 켠다.
 
     사이드카는 오래 사는 프로세스라 켠 값이 다음 요청으로 새면 안 된다(#34).
     ★ **펴기(`flatten_elements`)까지 이 안에서 해야 한다** — 선택지 한 줄 켜기는 접는 자리 판정(`_fold_full_lines`)도
       읽으므로, 점역만 문맥 안에서 하고 펴기를 밖에서 하면 접힘이 달라진다.
     """
     tokens = [(v, v.set(x)) for v, x in ((KOREAN_GRADE1, korean_grade == 1), (ENGLISH_GRADE1, english_grade == 1),
-                                         (inline_math.MATH_PAGE, math_page), (CHOICES_ONE_PER_LINE, split_choices))]
+                                         (inline_math.MATH_PAGE, math_page), (CHOICES_ONE_PER_LINE, split_choices),
+                                         (BOX_STYLE, box_style))]
     try:
         yield
     finally:
@@ -366,18 +372,18 @@ def _flatten_one(bo: BrailleOutput, el) -> object | None:
 
 def _run(opt: LLMOutput, translate_one, etype: str, hlevel: int,
          korean_grade: int, english_grade: int, math_page: bool, split_choices: bool = False,
-         line_indents: list[int] | None = None, order: int = 1):
+         line_indents: list[int] | None = None, order: int = 1, box_style: str = "border"):
     """요소 하나를 AI 서버 체인처럼 점역한다(`safe_translate`, #52) → (BrailleOutput, 요소 메타). **펴지는 않는다.**
 
     편 결과가 필요하면 `_flatten_one`(요소 하나) 이나 `flatten_elements`(쪽 요소 전부, `translate_page`)에 넣는다.
     펴기를 떼어 둔 까닭은 쪽 요소 여럿을 **한 번에** 펴야 이웃을 보는 빈 줄 판정이 서버와 같아지기 때문이다.
 
-    엔진 문맥 값(한글 정자 · 영어 정자 · 수식 쪽 · 선택지 한 줄)은 이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이
+    엔진 문맥 값(한글 정자 · 영어 정자 · 수식 쪽 · 선택지 한 줄 · 글상자 표시 꼴)은 이 호출 동안만 켠다. 사이드카는 오래 사는 프로세스라 켠 값이
     다음 요청으로 새면 안 된다(#34). 내용이 없는 요소는 `flatten_elements` 가 담지 않아 FlatElement 가 None 이다.
     `line_indents`(묵자 줄별 앞 빈칸)는 둘째 줄부터 들인 줄이 있고 점자 줄 수가 같을 때만 싣는다(#119). 아니면 종전처럼
     첫 줄 판정만 탄다. `order` 는 쪽 안 읽기 순서다(`translate_page` 가 넘긴다).
     """
-    with _ctx(korean_grade, english_grade, math_page, split_choices):
+    with _ctx(korean_grade, english_grade, math_page, split_choices, box_style):
         bo = safe_translate([opt], translate_one)[0]
     # 첫 줄만 들인 글은 종전 판정 그대로다(글상자는 첫 칸을 테두리 안 첫 줄로 옮긴다, `_first_indented`).
     if line_indents and any(line_indents[1:]) and len(line_indents) == len(bo.braille_lines):
@@ -477,6 +483,19 @@ def _flag(req: dict, key: str) -> bool:
     raise SidecarError("BAD_FIELD", f"{key} 는 true · false 여야 한다: {v!r}")
 
 
+_BOX_STYLES = ("border", "marker")
+
+
+def _box_style_arg(req: dict) -> str:
+    """글상자 표시 꼴(#138). 없거나 null 이면 "border". 그 밖의 값은 조용히 바꾸지 않고 `BAD_FIELD`."""
+    v = req.get("box_style")
+    if v is None:
+        return "border"
+    if v in _BOX_STYLES:
+        return v
+    raise SidecarError("BAD_FIELD", f"box_style 은 {' · '.join(_BOX_STYLES)} 여야 한다: {v!r}")
+
+
 def _flag_on(req: dict, key: str) -> bool:
     """기본이 켜짐인 참거짓 옵션. 없거나 null 이면 true. 나머지는 `_flag` 와 같다."""
     return True if req.get(key) is None else _flag(req, key)
@@ -564,11 +583,12 @@ def handle(req: dict) -> dict:
         return translate(req.get("text", ""), req.get("type") or "text", _level_arg(req, "heading_level"),
                          _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"), _flag(req, "math_page"),
                          _flag(req, "split_choices"), req.get("render_mode") or "", req.get("tn_text") or "",
-                         int(req.get("box_level") or 0), _flag(req, "force_roman"), _flag_on(req, "blank_lines"))
+                         int(req.get("box_level") or 0), _flag(req, "force_roman"), _flag_on(req, "blank_lines"),
+                         box_style=_box_style_arg(req))
     if op == "translate_page":
         return translate_page(req.get("elements") if isinstance(req.get("elements"), list) else [],
                               _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"),
-                              _flag(req, "math_page"), _flag(req, "split_choices"))
+                              _flag(req, "math_page"), _flag(req, "split_choices"), _box_style_arg(req))
     if op == "table":
         return table(req.get("table_source") or "", req.get("render_mode") or "", req.get("tn_text") or "",
                      int(req.get("box_level") or 0), _grade_arg(req, "korean_grade"), _grade_arg(req, "english_grade"),
