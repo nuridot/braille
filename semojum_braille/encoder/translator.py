@@ -2206,6 +2206,14 @@ from semojum_braille.encoder.constants import COLS as _BORDER_COLS, BOX_LEVELS a
 _BORDER_BLANK     = "⠀"   # 점자 빈칸(U+2800)
 from semojum_braille.encoder.constants import BORDER_LEFT_FILL as _BORDER_LEFT_FILL  # noqa: E402 — 캡 뒤 채움 칸 → 제목 7칸에서 시작(NLD-1.2.5(4)②, #1232 한 곳)
 from semojum_braille.encoder.constants import TITLE_INDENT as _TITLE_INDENT  # noqa: E402 — 윗줄 '5칸' 제목 = 앞 빈칸 4(#1501)
+from semojum_braille.encoder.constants import BOX_STYLE as _BOX_STYLE, BOX_MARKER as _BOX_MARKER  # noqa: E402 — 글상자 표시 꼴(#1795)
+
+
+def _box_marker(name: str, title_braille: str) -> str:
+    """글자 표지 꼴(`box_style="marker"`) 상자 줄. 원장 「책 관행 묶음 · 세계지리(016)」 gold 꼴 그대로다. 위계와 무관하게 같은 표지를 쓰고,
+    제목은 여는 표지 뒤 같은 줄에 한 칸 띄어 적는다(016 gold: 보기 76 · 개념 체크 66 …)."""
+    mark = _BOX_MARKER[_BORDER_KIND[name]]
+    return mark + _BORDER_BLANK + title_braille if title_braille else mark
 
 # 신형식 <!이름>…<!/이름> + 구형식 <!이름>…<!이름> 모두 수용(닫기 슬래시 옵션).
 # 위계: 이름 뒤 단계 숫자 옵션(<!상자2>=2단계, 없으면 1단계). group(1)=단계, group(2)=제목.
@@ -2290,7 +2298,7 @@ def _drop_body_title(m: re.Match) -> str:
     tag = m.group(1) + m.group(2)
     if _BODY_TITLE_RE.match(title):
         return f"<!{tag}><!/{tag}>\n{title}"
-    if len(_braillify_box_title(title)) > _BOX_TITLE_MAX:
+    if len(_braillify_box_title(title)) > _BOX_TITLE_MAX and _BOX_STYLE.get() != "marker":   # 글자 표지 꼴은 제목이 표지 뒤로 이어 흐른다(#1795)
         return f"{_BOX_TITLE_ABOVE}{title}\n<!{tag}><!/{tag}>"
     return m.group(0)
 
@@ -2516,10 +2524,13 @@ def substitute_tags(text: str) -> str:
     """
     text = _promote_literal_tn(text)
     # 1) 테두리 쌍 (중간 제목 가능) → 위계대로 32칸 줄. 제목 배치 · 빈 줄은 box_borders 로 layout 이 더한다.
+    #    `box_style="marker"`(#1795)면 테두리 대신 글자 표지 줄이다. 테두리 줄이 아니라 layout 이 상자 빈 줄을 안 넣는다(016 gold 와 같다).
+    marker = _BOX_STYLE.get() == "marker"
     for name, pat in _BORDER_PAIR_RE.items():
         text = pat.sub(
-            lambda m, n=name: _border_line(n, _braillify_box_title(m.group(2).strip()),
-                                           int(m.group(1) or 1)), text
+            lambda m, n=name: (_box_marker(n, _braillify_box_title(m.group(2).strip())) if marker else
+                               _border_line(n, _braillify_box_title(m.group(2).strip()), int(m.group(1) or 1))),
+            text
         )
 
     # 2) 단일·대칭 인라인 마커 + 미지 태그 제거

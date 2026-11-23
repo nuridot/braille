@@ -495,6 +495,24 @@ def test_split_choices_는_선택지를_한_줄에_하나씩_적는다():
     assert sidecar.handle({"op": "translate", "text": src, "split_choices": True})["cells"] == split
 
 
+def test_box_style_marker_는_글상자를_글자_표지로_적는다():
+    """조판꼴 설정 설계서 §10 `box_style`(#138, AI #1799). 기본 "border" 는 테두리, "marker" 는 `[글상자]` … `[글상자 끝]`.
+    표지 셀열은 AI 시험 `test_box_style_marker_1795.py` 와 같다(대괄호는 「한국 점자 규정」 재추출 2164~2169행)."""
+    src = "<!상자>보기<!/상자>\n가나다\n<!상자끝><!/상자끝>"
+    border, marker = sidecar.translate(src)["cells"], sidecar.translate(src, box_style="marker")["cells"]
+    assert border.startswith("\n⠿⠛⠛⠛⠛") and border.endswith("⠶⠶⠿\n\n")    # 테두리 상자는 위아래 빈 줄을 둔다
+    assert marker == "⠀⠀⠦⠆⠈⠮⠇⠶⠨⠰⠴⠀⠘⠥⠈⠕\n⠀⠀⠫⠉⠊\n⠀⠀⠦⠆⠈⠮⠇⠶⠨⠀⠠⠈⠪⠦⠰⠴"     # 표지 꼴은 3칸 · 빈 줄 없음
+    assert sidecar.translate(src)["cells"] == border                  # 켠 값이 다음 호출로 새지 않는다
+    assert sidecar.handle({"op": "translate", "text": src, "box_style": "marker"})["cells"] == marker
+    assert sidecar.handle({"op": "translate", "text": src, "box_style": None})["cells"] == border
+    page = sidecar.handle({"op": "translate_page", "elements": [{"text": src}], "box_style": "marker"})
+    assert "⠦⠆⠈⠮⠇⠶⠨⠰⠴" in page["elements"][0]["cells"] and "⠿" not in page["elements"][0]["cells"]
+    for bad in ("Marker", True, 1):
+        with pytest.raises(sidecar.SidecarError) as e:
+            sidecar.handle({"op": "translate", "text": src, "box_style": bad})
+        assert e.value.code == "BAD_FIELD"
+
+
 def test_read_brf_는_BRF_가_아니면_BAD_BRF():
     with pytest.raises(sidecar.SidecarError) as e:
         sidecar.handle({"op": "read_brf", "brf": "가나다"})
