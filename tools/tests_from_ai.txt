@@ -34,6 +34,7 @@ test/unit_test/braille/test_element_caps_t27.py
 test/unit_test/braille/test_eng_apostrophe_cell.py
 test/unit_test/braille/test_eng_caps_terminator.py
 test/unit_test/braille/test_eng_ueb_no_ation_ally.py
+test/unit_test/braille/test_engine_review_1810.py
 test/unit_test/braille/test_fold_full_lines.py
 test/unit_test/braille/test_font_slot_subscripts_t25.py
 test/unit_test/braille/test_footer_roman.py

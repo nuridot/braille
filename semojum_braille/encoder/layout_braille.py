@@ -601,6 +601,11 @@ _PAGE_FURNITURE = frozenset({"header_footer", "page_number"})   # 쪽 머리 꼬
 # 사이가 벌어지고 코드 줄이 새 문단처럼 1칸에서 시작한다(#1532, 레이아웃 자 R6). gold 는 번호 · 코드 · 발문을 한 줄에 적는다.
 # 코드만 든 줄 자체는 머리로 둔다 — 번호를 잃고 코드로 여는 문항이 대부분이고 gold 는 그 앞에 빈 줄을 둔다(맞댄 100 중 90).
 _Q_NUM_ONLY_RE = re.compile(r"\d{1,2}\.?")
+# 해설 권 문항 머리(`06 제4차 십자군 전쟁의 전개 이해`, 두 자리 번호 + 빈칸 + 해설 제목, 문항 코드 없음)도 문항 머리다(#1810).
+#   지침 값은 위와 같다(문항과 문항 사이 한 줄). gold dev · val 해설 권에서 이 꼴 머리 앞 빈 줄을 우리가 놓친 자리 340 ·
+#   우리만 띄운 자리 7(B 팔 a8dcb55d, `V2 temp/n492/braille/b19/blank_ctx.jsonl`). 글 속 `20 세기 초` 같은 줄과 가르려고
+#   **요소가 이 한 줄뿐**일 때만 머리로 본다(마침표 없는 제목, 40자 안).
+_EXPL_HEAD_RE = re.compile(r"\d{2}\s+[가-힣][^.?!\n]{0,40}")
 
 
 def _is_q_head(src_line: str) -> bool:
@@ -614,7 +619,7 @@ def _is_top_border(line: str) -> bool:
     return _is_border_line(line) and any(line[:2] == lv["top"][0] + lv["top"][1] for lv in _BOX_LEVELS.values())
 
 
-def _q_blanks(lines: list[str], corrected_text: str) -> tuple[frozenset, bool]:
+def _q_blanks(lines: list[str], corrected_text: str, etype: str = "") -> tuple[frozenset, bool]:
     """문항 머리 줄 앞 빈 줄 자리 — (빈 줄을 앞에 둘 줄 번호, 요소 첫 줄이 문항 머리인가).
 
     원문 줄과 점자 줄이 1:1 일 때만 줄을 찾는다(`_mark_item_lines` 와 같은 근거). 앞 줄이 빈 줄 · 위 테두리면 안 둔다.
@@ -627,6 +632,10 @@ def _q_blanks(lines: list[str], corrected_text: str) -> tuple[frozenset, bool]:
     heads = [i for i in filled if _is_q_head(src[i])]
     heads = [i - 1 if i - 1 in filled and _Q_NUM_ONLY_RE.fullmatch(_TAG_RE.sub("", src[i - 1]).strip()) else i
              for i in heads]
+    # 쪽 머리 꼬리말 · 쪽 번호(`01 지수와 로그` 단원 꼬리말)는 문항 머리가 아니다 — 사이드카 `translate` 가 꼬리말 앞에 빈 줄을 붙였다
+    if not heads and etype not in _PAGE_FURNITURE and len(filled) == 1 \
+            and _EXPL_HEAD_RE.fullmatch(_TAG_RE.sub("", src[filled[0]]).strip()):
+        heads = [filled[0]]                               # 해설 권 문항 머리(#1810) — 요소 첫 줄이라 요소 경계 빈 줄로 넘어간다
     at = frozenset(i for i in heads
                    if i != filled[0] and lines[i - 1].strip(" ⠀") and not _is_top_border(lines[i - 1]))
     return at, bool(heads) and heads[0] == filled[0]
@@ -1129,7 +1138,7 @@ class LayoutBraille:
             etype, _order, hlevel = meta.get(bo.element_id, _DEFAULT_META)
             off = zone[bo.element_id] or not bo.box_borders
             _tn_at, tn_lead, tn_tail = _tn_blanks(bo.braille_lines, etype)
-            q_lead = _q_blanks(bo.braille_lines, bo.corrected_text or "")[1] or tn_lead   # 조판이 줄을 접기 전에
+            q_lead = _q_blanks(bo.braille_lines, bo.corrected_text or "", etype)[1] or tn_lead   # 조판이 줄을 접기 전에
             el_lines, forced = self._format_element(bo, etype, hlevel, tight=off, box_depth=depth,
                                                     prev_src=prev_src, prev_line=prev_br)
             q_lead = q_lead or self._ref_lead
@@ -2006,7 +2015,7 @@ def flatten_elements(
             lines, pads, etype, _aligned_src(bo.corrected_text or "", lines))
         off = zone[bo.element_id] or not bo.box_borders
         blank_at, box_lead, box_tail = _box_blanks(lines, off)
-        q_at, q_lead = _q_blanks(lines, bo.corrected_text or "")
+        q_at, q_lead = _q_blanks(lines, bo.corrected_text or "", etype)
         tn_at, tn_lead, tn_tail = _tn_blanks(lines, etype)
         r_at, r_lead = _ref_alone_blanks(lines, bo.corrected_text or "", depth, prev_src, prev_line, etype)
         seps = _with_box_blanks(seps, blank_at | q_at | tn_at | r_at)
