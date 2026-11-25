@@ -268,6 +268,23 @@ _LETTER_PARTICLE_RE = re.compile(r"(?:의|이|가|을|를|은|는|와|과|에|�
 _MATH_NEIGHBOR_RE = re.compile(r"[A-Za-z0-9=+\-−<>≤≥×÷·/^_()\[\]{}|'′]")
 
 
+# 평문 결합 윗줄(U+0305)이 붙은 대문자 이름(`AB̅=CD̅=2` · `A̅B̅`) · 홑 소문자(`x̅`)는 선분 · 가로바 수식이다(#1810).
+#   로마자로 가면 `⠴⠰⠠⠠⠁⠃⠲⠈⠉` 처럼 로마자표가 붙고 윗줄표가 뒤에 섰다. `\overline{…}` 로 바꿔 수식 길에 보내면
+#   수학 제35항 선분(⠈⠉ 를 앞에, 재추출 3728~3730행) · 제23항 가로바(⠭⠈⠉, 3630~3632행)를 `convert_latex` 가 가르고,
+#   수식이라 제12항 1(3254행)대로 로마자표 없이 앞뒤 두 칸이다. gold 009 해설 9쪽 `⠀⠀⠈⠉⠠⠠⠁⠃⠒⠒⠈⠉⠠⠠⠉⠙⠒⠒⠼⠃⠀`.
+#   추출은 지면의 한 줄 윗줄을 이름의 마지막 글자에만 붙이기도 한다(`AB̅`) — 윗줄이 하나라도 있는 대문자 이름 전체를 잡는다.
+_OVERLINE_NAME_RE = re.compile(r"(?<![A-Za-z])(?:[A-Z][′']?\u0305?){1,4}(?![A-Za-z\u0305])")
+_OVERLINE_LOWER_RE = re.compile(r"(?<![A-Za-z])([a-z])\u0305(?![A-Za-z])")
+
+
+def _overline_to_latex(text: str) -> str:
+    if "\u0305" not in text:
+        return text
+    text = _OVERLINE_NAME_RE.sub(
+        lambda m: "\\overline{" + m.group().replace("\u0305", "") + "}" if "\u0305" in m.group() else m.group(), text)
+    return _OVERLINE_LOWER_RE.sub(r"\\overline{\1}", text)
+
+
 _PREV_FORMULA_COMMA_RE = re.compile(r"<!수식>((?:(?!<!).)*)<!/수식>\s*,$", re.S)
 _SINGLE_LETTER_RE = re.compile(r"[A-Za-z]")
 # 그리스 문자 하나 · 낱자 나열도 같다(#1592). 「수학 점자」 제13항 [붙임](정본 3350~)이 국어 문장 안의 수학적 표기 그리스
@@ -4469,6 +4486,7 @@ def translate_tagged_text(text: str, *, force_roman: bool = False,
     #   `⠸⠴⠴⠴⠇⠕`). 안 걷으면 홑 ◯ 셋이 맞고 틀림 표시 `O O O` 로 나갔다(#1307 런 판정이 못 본다).
     text = _CIRCLE_THIN_GAP_RE.sub(r"\1", text)
     text = _OX_MARK_RE.sub(_ox_mark_repl, text)
+    text = _overline_to_latex(text)       # 결합 윗줄 선분 · 가로바 → 수식 길(#1810) — inline_math.wrap 보다 먼저
     text = _space_hangul_operators(text)  # 제46항 — 수식 라우팅보다 먼저(#938)
     text = _space_refmark(text)           # 제60항 — 참고표 ※ 앞뒤 한 칸(#1378)
     text = _attach_length_mark(text)      # 제63항 — 긴소리표 앞뒤 붙임(#1222)
