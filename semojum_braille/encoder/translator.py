@@ -2282,6 +2282,10 @@ def _braillify_box_title(raw: str) -> str:
       띄어쓰기가 아니다. 조각이 **전부 한 글자**일 때만 되붙인다(`자료 1` · `보기 1` 은 그대로).
       # ponytail: 낱자 나열이 진짜 제목인 경우(`ㄱ ㄴ ㄷ`)는 함께 붙는다. 실물에서 본 적 없다.
     """
+    if _SPAN_LABEL_RE.match(raw.strip()):
+        # #1821 — 홀로 선 로마자 제목도 로마자표를 적는다(「한국 점자 규정」 제29항 예 `Table of Contents`, 재추출 1505~1506행).
+        #   본문 길과 같은 꼴 ⠦⠆⠴⠠⠁⠰⠴ 를 낸다(정답 57곳 모두 이 꼴).
+        return translate_tagged_text(raw.strip(), force_roman=True)
     core = raw.strip("<>〈〉[]【】「」 ")
     parts = core.split()
     if len(parts) > 1 and all(len(x) == 1 for x in parts):
@@ -2295,7 +2299,10 @@ def _braillify_box_title(raw: str) -> str:
 #   추출이 `<!상자>제목<!/상자>` 로 태깅하면 우리는 위치를 안 보고 ②로 올렸다.
 #   2027 gold 전수: 우리가 테두리에 올린 괄호 제목 16개 중 gold 가 테두리에 적은 것 **0**
 #   (테두리 다음 줄 12 · 본문 4). 맨몸 제목(`보기` 등)은 gold 도 테두리다(468) — 건드리지 않는다.
-_BODY_TITLE_RE = re.compile(r"^[\[【][^\[\]【】\n]+[\]】]$")
+# ★ #1821 — 지문 구간 표시 `[A]`~`[E]`(대괄호 속 로마자 대문자 한 글자)는 빼서 테두리에 둔다. 정답 004 본책 13 · 005 본책 44 가
+#   모두 위 테두리 제목이고 상자 첫 줄은 0 이다(「점자 도서 제작 지침」 1장 2절 5.(4)② 재추출 400행 테두리 7칸).
+_SPAN_LABEL_RE = re.compile(r"^\[[A-Z]\]$")
+_BODY_TITLE_RE = re.compile(r"^(?!\[[A-Z]\]$)[\[【][^\[\]【】\n]+[\]】]$")
 
 # #1501 — 위 테두리에 드는 제목은 24칸까지다(캡1 + 채움4 + 빈칸1 + 제목 + 빈칸1 + 캡1 = 32, 「점자 자료 제작 지침」
 #   2.1.7(4)② 재추출 580~581행의 '26칸' 은 제목 + 뒤 빈칸 + 끝 캡). 넘으면 "위 테두리의 윗줄 5칸에 제목을 적는다".
@@ -4169,7 +4176,10 @@ def _safe_to_unicode(seg: str, _split_eng: bool = True,
     #   안의 숫자 조각**이라는 뜻이고(제32항 — 로마자표 사이 숫자는 구간 내부다), 세그에
     #   로마자가 남아 있는 경우는 영어 분리가 안 걸린 자리다. 이 가드를 빼면 val 3자리가
     #   한글 쉼표 ⠐ 로 뒤집혔다(A/B 실측).
-    if _split_eng and _NUM_LIST_COMMA_RE.search(seg) and not _LATIN_CHAR_RE.search(seg):
+    # 로마자 뒤 한글 조각(`DNA는 2, 4가` 의 `는 2, 4가`)은 `_split_eng=False` 로 오지만 한글 문장이다 — 한글이 든 조각이면
+    #   가른다(#1810, 제49항 쉼표 ⠐). 안 가르면 braillify 가 ⠂ 로 냈다(gold dev 001 · 009 ⠐ 124곳, B 팔 a8dcb55d).
+    if ((_split_eng or _HANGUL_SYL_RE.search(seg)) and _NUM_LIST_COMMA_RE.search(seg)
+            and not _LATIN_CHAR_RE.search(seg)):
         return "".join(_safe_to_unicode(part, _split_eng, ctx)
                        for part in _NUM_LIST_COMMA_RE.split(seg) if part)
 

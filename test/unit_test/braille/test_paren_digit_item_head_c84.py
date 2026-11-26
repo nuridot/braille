@@ -23,3 +23,15 @@ def test_괄호_숫자_머리는_3칸에서(text):
 
 def test_단원_제목은_종전대로_5칸에서():
     assert _indent("이슬람 세계의 형성과 발전") == 4
+
+
+# #1829 — 글머리 기호 하나 + 빈칸으로 여는 제목도 문단 머리라 3칸이다.
+#   「점자 도서 제작 지침」 2장 3절 5. 1)(재추출 1434행) 「문단 시작 위치의 글머리 기호는 3칸에 표기」.
+@pytest.mark.parametrize("text", ["• 낱말", "•낱말", "○ 낱말", "● 낱말", "□ 낱말", "△ 낱말"])
+def test_글머리_기호로_여는_제목은_3칸에서(text):
+    assert _indent(text) == 2
+
+
+@pytest.mark.parametrize("text", ["○○의 생애", "△△일보"])
+def test_빈칸_자리표시_제목은_종전대로_5칸에서(text):
+    assert _indent(text) == 4

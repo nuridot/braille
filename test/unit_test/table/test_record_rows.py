@@ -71,3 +71,26 @@ class TestShape:
         monkeypatch.setenv("TABLE_RECORD_ROWS", "1")
         monkeypatch.setattr(tb, "_RECORD_MIN_CELL", 500.0)
         assert tb._use_record_rows(_grid(LONG)) is False
+
+
+class TestWrap:
+    """#1834 — 레코드 꼴 줄도 32칸에서 접는다.
+
+    「점자 도서 제작 지침」 1장 1절 3.(재추출 192행) 「용지는 가로 32칸과 세로 26줄을 기본」.
+    종전에는 「머리행 이름: 값」 줄을 안 접어 172칸 줄까지 나갔다(eval E-40, 격자 꼴은 32칸 안).
+    """
+    WORDY = ("구분 | 첫째 갈래 | 둘째 갈래\n"
+             "뜻 | " + " ".join(["하늘과 바다 사이에 놓인 긴 다리를 천천히 건너는 사람들"] * 3)
+             + " | " + " ".join(["푸른 들판 너머 작은 마을에서 저녁 종소리가 들려온다"] * 3))
+
+    def test_모든_줄이_32칸_안이다(self, monkeypatch):
+        monkeypatch.setenv("TABLE_RECORD_ROWS", "1")
+        lines = tb._render_grid(self.WORDY)
+        assert all(len(l) <= 32 for l in lines)
+
+    def test_접어도_글은_그대로다(self, monkeypatch):
+        monkeypatch.setenv("TABLE_RECORD_ROWS", "1")
+        body = tb._render_grid(self.WORDY)[1:-1]
+        joined = "⠀".join(l.strip("⠀") for l in body)
+        assert tb._translate("첫째 갈래") + "⠐⠂⠀" in joined
+        assert tb._translate(" ".join(["하늘과 바다 사이에 놓인 긴 다리를 천천히 건너는 사람들"] * 3)) in joined
