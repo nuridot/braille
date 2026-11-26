@@ -29,3 +29,10 @@ def test_furniture_is_not_explanation_head():
     # 단원 꼬리말(`01 지수와 로그`)은 쪽 머리 꼬리말이라 문항 머리 빈 줄을 안 받는다(사이드카 force_roman 시험이 잡음)
     assert L._q_blanks(["⠼⠚⠁⠀⠨⠕"], "01 지수와 로그", "header_footer") == (frozenset(), False)
     assert L._q_blanks(["⠼⠚⠁⠀⠨⠕"], "01 지수와 로그", "text") == (frozenset(), True)
+
+
+def test_number_list_comma_after_roman_is_korean_comma():
+    # 「한국 점자 규정」 제41항(1939행): 숫자 사이에 붙어 나오는 쉼표만 자릿점 ⠂, 빈칸 너머는 제49항 쉼표 ⠐.
+    #   로마자가 앞에 있는 한글 문장에서도 같다. 영어 문장(한글 없음)은 통일영어 쉼표 ⠂ 그대로.
+    assert "⠼⠃⠐⠀⠼⠙" in translate_tagged_text("DNA는 2, 4가")
+    assert "⠼⠁⠚⠂⠀⠼⠁⠊⠊⠃⠂" in translate_tagged_text("On January 10, 1992, he left")
