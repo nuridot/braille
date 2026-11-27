@@ -386,7 +386,7 @@ Klass().translate(optimized: list[LLMOutput]) -> list[BrailleOutput]
 ['⠭⠘⠼⠃⠔⠼⠙⠒⠒⠼⠚']
 ```
 
-예 4, 표. 기본은 풀어쓰기이고 `render_mode` 로 다른 안을 고른다:
+예 4, 표. 기본은 풀어쓰기이고 `render_mode` 로 다른 안을 고른다. 격자 꼴은 행 제목 뒤에 쌍점 `⠐⠂` 을 둔다(3.4.53, 「점자 도서 제작 지침」 3장 2절 1)(1)③ 재추출 1770~1772행):
 
 ```
 >>> t = TableBraille().translate([LLMOutput(element_id=uuid.UUID(int=5), corrected_text="이름 | 나이\n철수 | 10\n영희 | 11", routing_tier="ZERO")])[0]
@@ -396,7 +396,7 @@ Klass().translate(optimized: list[LLMOutput]) -> list[BrailleOutput]
 ['⠀⠀⠕⠐⠪⠢⠀⠀⠉⠣⠕', '⠀⠀⠰⠞⠠⠍⠀⠀⠼⠁⠚', '⠀⠀⠻⠚⠺⠀⠀⠼⠁⠁']
 >>> t2 = TableBraille().translate([LLMOutput(element_id=uuid.UUID(int=6), corrected_text="이름 | 나이\n철수 | 10\n영희 | 11", routing_tier="ZERO", render_mode="table_grid")])[0]
 >>> t2.selected_idx, t2.braille_lines
-(1, ['⠿⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠿', '⠀⠀⠕⠐⠪⠢⠀⠀⠉⠣⠕', '⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐', '⠀⠀⠰⠞⠠⠍⠀⠀⠼⠁⠚', '⠀⠀⠻⠚⠺⠀⠀⠼⠁⠁', '⠿⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠿'])
+(1, ['⠿⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠛⠿', '⠀⠀⠕⠐⠪⠢⠐⠂⠀⠉⠣⠕', '⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐⠐', '⠀⠀⠰⠞⠠⠍⠐⠂⠀⠼⠁⠚', '⠀⠀⠻⠚⠺⠐⠂⠀⠼⠁⠁', '⠿⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠶⠿'])
 ```
 
 예 5, 시각 자료. 초안 둘 가운데 `selected_idx` 의 것이 `braille_lines` 가 된다:

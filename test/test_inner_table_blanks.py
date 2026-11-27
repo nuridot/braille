@@ -1,4 +1,4 @@
-"""AI #1424(원장 C-175) — 글상자 안 표는 위아래에 빈 줄을 두지 않는다. 상자 밖 표는 종전대로 한 줄씩 띈다.
+"""AI #1424(원장 C-175) — 글상자 안 표는 위아래에 빈 줄을 두지 않는다. 상자 밖 표는 칸 구분선이 없을 때만 한 줄씩 띈다(C-220).
 
 AI 시험(`test_inner_table_blanks_1424.py`)은 AI 서버 배치 타입(`LayoutResult`)을 써서 못 옮긴다. 엔진 사이드카처럼
 `flatten_elements` 에 배치 자리표시(`SimpleNamespace`)를 주어 같은 판정을 본다. 사이드카 `translate` 는 요소 앞뒤
@@ -39,8 +39,13 @@ def test_상자_안_표는_위아래_빈_줄이_없다(monkeypatch):
     assert above.strip("⠀ ") and below.startswith("⠿⠶")
 
 
-def test_상자_밖_표와_끈_스위치는_종전대로_띈다(monkeypatch):
+def test_상자_밖_격자_표는_붙고_끈_스위치는_종전대로_띈다(monkeypatch):
+    """3.4.53(AI #1889, 원장 C-220): 칸 구분선 ⠐⠐⠐ 이 든 격자 표는 상자 밖에서도 위아래를 붙인다. `TABLE_BLANKS=1` 이면 띈다."""
     monkeypatch.delenv("INNER_TABLE_BLANKS", raising=False)
+    monkeypatch.delenv("TABLE_BLANKS", raising=False)
+    above, below = _around(_lines(0), _TBL_TOP, _TBL_BOT)
+    assert above.strip("⠀ ") and below.strip("⠀ ")
+    monkeypatch.setenv("TABLE_BLANKS", "1")
     assert _around(_lines(0), _TBL_TOP, _TBL_BOT) == ("", "")
     monkeypatch.setenv("INNER_TABLE_BLANKS", "1")
     assert _around(_lines(1), L2_TOP, L2_BOT) == ("", "")

@@ -24,7 +24,7 @@ def _vanishes(ch: str) -> bool:
     return _translate_off("가" + ch + "나") == _translate_off("가나")
 
 
-@pytest.mark.parametrize("ch", ["⃞", "▲", "★", "†", "☐"])
+@pytest.mark.parametrize("ch", ["⃞", "★", "†", "☐"])   # ▲ 는 B-20(#1861)부터 줄 가운데서도 ⠸⠬ 로 나간다
 def test_사라지는_기호는_집계에_잡힌다(ch):
     assert _vanishes(ch), f"{ch!r} 가 더는 사라지지 않는다 — 이 시험의 전제를 다시 보라"
     assert dropped_symbols("가" + ch + "나")[ch] == 1
@@ -43,9 +43,11 @@ def test_조합_표시도_센다():
 
 
 def test_줄머리_점형이_문중_판정을_가리지_않는다():
-    """▲ 는 줄머리에서는 점형이 나오지만 문중에서는 사라진다. 둘을 갈라 본다."""
+    """▲ 는 줄머리에서는 글머리 ⠸⠲(원장 B-10), 문중에서는 글머리 △ 꼴 ⠸⠬ 다. 둘 다 안 사라진다.
+    문중 꼴은 「점자 도서 제작 지침」 [예 2-33](재추출 1486행) `공정은 ▲ 배합공정` = `@=.}z`_+`~rjb@=.}`(B-20 #1861)."""
     assert translate_tagged_text("▲ 첫째 항목").startswith("⠸⠲")
-    assert dropped_symbols("다음은 ▲ 첫째 항목")["▲"] == 1
+    assert "⠸⠬" in translate_tagged_text("다음은 ▲ 첫째 항목")
+    assert "▲" not in dropped_symbols("다음은 ▲ 첫째 항목")
 
 
 @pytest.mark.parametrize("text", [
@@ -59,7 +61,7 @@ def test_점형이_나오는_자리는_안_센다(text):
 
 
 def test_자리마다_센다():
-    assert dropped_symbols("▲ 첫째, 둘째 ▲ 셋째")["▲"] == 1        # 줄머리 것은 점형, 문중 것만 사라진다
+    assert "▲" not in dropped_symbols("▲ 첫째, 둘째 ▲ 셋째")        # 줄머리 ⠸⠲ · 문중 ⠸⠬ 둘 다 점형(B-20 #1861)
     assert dropped_symbols("가⃞나")["⃞"] == 1
     # 네모 글자가 이어진 장식 배지는 일부러 지운다(원장 C-16-3, gold 네모 없음). 빠짐이 아니라 안 센다(#1705 셈 = 표시).
     assert "⃞" not in dropped_symbols("정⃞답⃞")

@@ -547,12 +547,12 @@ def _box_blanks(lines: list[str], off: bool) -> tuple[frozenset, bool, bool]:
                 j -= 1
             if j == first:
                 lead = True
-            elif lines[j - 1].strip():
+            elif lines[j - 1].strip() and not _hugs_prev(lines[j], lines[j - 1]):
                 at.add(j)
         elif kind == "bottom":
             if i == last:
                 tail = True
-            elif lines[i + 1].strip():
+            elif lines[i + 1].strip() and not _hugs_prev(lines[i + 1], ln):
                 at.add(i + 1)
     return frozenset(at), lead, tail
 
@@ -662,6 +662,30 @@ def _is_tn_line(line: str) -> bool:
         and s.count(_TN_MARK_BR) == 2
 
 
+# ── 앞 줄에 딸려 붙는 글상자 · 출전(B-21, 원장 C-217) ──────────────────────────────────────────────
+# 「점자 도서 제작 지침」 1장 2절 5. 2)(6)(재추출 489~490행)은 글상자 위아래에 빈 줄을 두지만, 같은 지침의 예는 두 자리에서 붙인다:
+#   ① 점역자 주 줄(`【점역자주】비율 그래프【점역자주】:`) 바로 뒤 자료 상자 — 3장 [예] 그래프 표기(도서 지침 3-33 · 3-36 짝),
+#   ② 상자 아래 테두리 바로 뒤 출처 · 자료 줄(`출처: …` · `자료: …`) — 3-5 · 3-36 짝.
+# gold(2027 dev · val 11권) 도 같다: 줄 전체가 점역자 주인 줄 → 위 테두리 붙음 6 · 빈 줄 0(001 4 · 004 1 · 019 1),
+#   아래 테두리 → 출처 · 자료 붙음 4 · 빈 줄 0. 판정표(지침 본문 · 예 · 관행)대로 예와 관행을 따른다.
+# ① 은 상자를 이끄는 머리 꼴(지침 예처럼 주 뒤에 쌍점)만 붙인다. 「그림 생략」 같은 홑 주 줄 뒤에 따로 오는 상자는
+#   그 주에 딸린 것이 아니다(eval E-44 회차 11: 홑 주 요소 119 곳에서 뒤 빈 줄이 사라져 019 정답 빈 줄을 잃음.
+#   gold 도 `사진 생략` 주 → 상자는 띄운다).
+_SOURCE_LINE_RE = re.compile(r"^[ ⠀]*(?:⠰⠯⠰⠎|⠨⠐⠬)⠐⠂")      # `출처:` · `자료:`
+
+
+def _is_tn_head_line(line: str) -> bool:
+    """상자를 이끄는 점역자 주 머리 줄인가 — 줄 전체가 주이고 뒤에 쌍점(`【점역자주】비율 그래프【점역자주】:`)."""
+    s = line.strip(" ⠀")
+    return s.endswith(_TN_MARK_BR + "⠐⠂") and _is_tn_line(s[:-2])
+
+
+def _hugs_prev(first_line: str, prev_line: str) -> bool:
+    """이 줄이 앞 줄에 딸려 빈 줄 없이 붙는가(위 주석 ① · ②)."""
+    return ((_box_kind(first_line) == "top" and _is_tn_head_line(prev_line))
+            or (_box_kind(prev_line) == "bottom" and bool(_SOURCE_LINE_RE.match(first_line))))
+
+
 def _tn_blanks(lines: list[str], etype: str = "text") -> tuple[frozenset, bool, bool]:
     """점역자 주 덩어리 위아래 빈 줄 — (요소 안 빈 줄을 앞에 둘 줄 번호, 요소 머리가 주인가, 요소 끝이 주인가). 위 주석."""
     filled = [i for i, ln in enumerate(lines) if ln.strip(" ⠀")]
@@ -761,7 +785,16 @@ def _block_blanks(etype: str, hlevel: int, box_lead: bool = False, box_tail: boo
     """요소 앞뒤 빈 줄 요구(0 · 1) — 응답 · 쪽 조판이 같이 쓴다. 제목 단계 · 표 · 시각 자료 · 요소 머리(글상자 · 문항 머리) ·
     끝의 글상자."""
     before, after = _HEADING_BLANK.get(hlevel, (0, 0))
-    if etype in _BLANK_AROUND_TYPES and not inner_table:     # 표·시각자료 위아래(NLD 2장2절2 2)(2)④)
+    # 표 위아래(NLD 2장2절2 2)(2)④). ★ 시각 자료(그림 · 그래프 · 도표 · 만화)는 빈 줄을 안 둔다 — 원장 C-219(B-21 #1885, 2026-11-26):
+    #   지침 본문 2장 2절 2. 2)(2)④(재추출 905행)는 「표·시각 자료의 위아래」 를 들지만, 같은 지침의 시각 자료 예(3장 [예 3-19] ~
+    #   [예 3-36] 등, E-45 14짝)는 제목 → 그림 주 → 본문을 빈 줄 없이 잇고 1장 2절 6. 2)(497행)는 「시각 자료와 관련된 점역자
+    #   주도 빈 줄을 두지 않는다」. 2027 gold dev · val 그림 주 덩이 앞 붙음 853 · 빈 줄 211, 뒤 붙음 904 · 빈 줄 169(10권 중 앞
+    #   8권 · 뒤 9권이 붙임). 지침 예와 관행이 같아 붙인다. 되돌리기 `VISUAL_BLANKS=1`(호출 때 읽음).
+    #   갈래별 gold: 그림 앞 667:114 · 뒤 668:115, 사진 88:34 · 96:26, 만화 29:0 · 28:1, 그래프 17:23 · 23:18(갈림, 지침 예 3-32 ~ 3-36
+    #   짝은 붙임). 만화도 붙인다 — 「점자 자료 제작 지침」 §5.3.1(3) 「만화의 앞뒤에 빈 줄」 은 지침만이고 2027 gold 가 29:0 이다
+    #   (종전 근거 「앞 6/7 · 뒤 5/5」 는 구판 셈).
+    # 격자 표(칸 구분선 ⠐⠐⠐)는 `inner_table` 로 넘어와 붙는다(`_is_grid_table`, 원장 C-220).
+    if not inner_table and (etype == "table" or (etype in _VISUAL_TYPES and os.environ.get("VISUAL_BLANKS", "0") == "1")):
         before, after = max(before, 1), max(after, 1)
     return max(before, int(box_lead)), max(after, int(box_tail))
 
@@ -771,6 +804,16 @@ def _block_blanks(etype: str, hlevel: int, box_lead: bool = False, box_tail: boo
 #   위 빈 줄 9 · 아래 11(93% 붙임), 표 아래 테두리 바로 다음이 바깥 상자 아래 테두리인 57곳은 사이 0줄.
 #   상자 안 표는 표 체인이 위계대로 2 · 3단계 테두리(⠖…⠲ · ⠓…⠚)로 다시 그린 표다(`table_braille._relevel_borders`).
 #   되돌리기 `INNER_TABLE_BLANKS=1`(호출 때 읽음).
+# 원장 C-220(B-21 #1889, 2026-11-26) — **격자 표**(칸 구분선 ⠐⠐⠐ 이 든 표)는 위아래 빈 줄 없이 붙인다. 지침 표 예(도서-3-2 · 3-4 ·
+#   3-5 · 3-6 짝 등)가 캡션 → 위 테두리 · 아래 테두리 → 다음 글을 붙이고, E-44 기준 팔 우리 격자 표 요소를 정답 쪽에 칸 맞대기로
+#   옮긴 셈(eval e46 도구, braille 가 격자로 가름)도 앞 붙음 225 · 빈 줄 26, 뒤 211 : 38 이다. 정답 쪽 격자 덩이 셈(위 305:60 · 아래
+#   260:97)도 같은 쪽. ⚠ 칸 구분선 없는 표(테두리 친 지문 · 자료 상자로 잡힌 것 · 펼친 꼴)는 정답이 띄운다(앞 222:290 · 뒤 62:303,
+#   012 · 014 · 015 · 019 의 사료 · 지문 상자) — 종전대로 띈다. 되돌리기 `TABLE_BLANKS=1`.
+def _is_grid_table(etype: str, lines: list[str]) -> bool:
+    return (etype == "table" and os.environ.get("TABLE_BLANKS", "0") != "1"
+            and any("⠐⠐⠐⠐⠐⠐" in ln for ln in lines))
+
+
 def _is_inner_table(etype: str, lines: list[str]) -> bool:
     return (etype == "table" and os.environ.get("INNER_TABLE_BLANKS", "0") != "1"
             and any(ln[:1] in "⠖⠓" and _is_border_line(ln) for ln in lines))
@@ -1194,13 +1237,13 @@ class LayoutBraille:
             # 위 테두리 윗줄 5칸 제목(앞 요소)은 상자에 딸린다 — 빈 줄은 그 위다.
             before, after = _block_blanks(etype, hlevel,
                                           (box_lead and not (_is_box_title_line(prev_line) and not prev_hung)) or q_lead,
-                                          box_tail, _is_inner_table(etype, el_lines))
+                                          box_tail, _is_inner_table(etype, el_lines) or _is_grid_table(etype, el_lines))
             # 요소가 스스로 달고 온 앞뒤 빈 줄도 같은 '한 줄' 요구다. 떼어 내 before/after에 합치면
             # 경계 빈 줄과 겹칠 일이 없다.
             lead, tail = _lead_blanks(el_lines), _tail_blanks(el_lines)
             body = el_lines[lead:len(el_lines) - tail] or el_lines
             before, after = max(before, min(lead, 1)), max(after, min(tail, 1))
-            if _joins_visual_run(etype, prev_type, body[0], prev_line):
+            if _joins_visual_run(etype, prev_type, body[0], prev_line) or _hugs_prev(body[0], prev_line):
                 before = pending = 0
             if (pending or before) and lines:       # 두 줄 이상 띄는 자리는 규정에 없다
                 lines.append("")
@@ -2032,8 +2075,10 @@ def flatten_elements(
         box_lead = box_lead and prev_key is not None and not _is_box_title_line(prev_line)
         q_lead = q_lead and not page_head and not _is_top_border(prev_line)
         page_head = page_head and etype in _PAGE_FURNITURE
-        before, after = _block_blanks(etype, hlevel, box_lead or q_lead, box_tail, _is_inner_table(etype, lines))
-        if _joins_visual_run(etype, prev_type, next((ln for ln in lines if ln.strip()), ""), prev_line):
+        before, after = _block_blanks(etype, hlevel, box_lead or q_lead, box_tail,
+                                      _is_inner_table(etype, lines) or _is_grid_table(etype, lines))
+        first_line = next((ln for ln in lines if ln.strip()), "")
+        if _joins_visual_run(etype, prev_type, first_line, prev_line) or _hugs_prev(first_line, prev_line):
             # NLD 3장2절1 2) 다만 — 시각 자료가 연이어 나올 때 그 사이는 안 띈다.
             # 여기선 빈 줄이 **앞 요소의 suffix에 이미 박혀** 있으므로 그만큼 되돈다
             # (줄 배열을 들고 가는 `_assemble_pages`와 달리 되감을 lines가 없다).

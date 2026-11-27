@@ -197,7 +197,9 @@ _SQRT_RE   = re.compile(r"\\sqrt\{([^{}]*)\}")
 _SUP_RE    = re.compile(r"([A-Za-z0-9α-ωΑ-Ω⠁-⠿})\]])\^\{((?:[^{}]|\{[^{}]*\})*)\}"
                         r"|([A-Za-z0-9α-ωΑ-Ω⠁-⠿})\]])\^([+\-−][A-Za-z0-9]*|[A-Za-z0-9])")
 # 아래첨자: base_{sub} 또는 base_x
-_SUB_RE    = re.compile(r"([A-Za-z0-9α-ωΑ-Ω⠁-⠿])_\{([^{}]*)\}|([A-Za-z0-9α-ωΑ-Ω])_([A-Za-z0-9])")
+# ★ 중괄호 한 겹 겹침까지 읽는다(B-20 · #1842). 첨자 안 첨자(`Q_{O_{2}}`, 과학 제28항 호흡량)를 안쪽부터 바꾸면 바깥 `_{…}` 가
+#   다시 안 잡혀 밑줄로 새었다(`,q_-,o;#b`). 첨자 안에 첨자가 들면 곱이라 묶음 괄호로 묶는다(아래 `_sub_replace`).
+_SUB_RE    = re.compile(r"([A-Za-z0-9α-ωΑ-Ω⠁-⠿])_\{((?:[^{}]|\{[^{}]*\})*)\}|([A-Za-z0-9α-ωΑ-Ω])_([A-Za-z0-9])")
 # 숫자 (음수 포함, 소수 포함). 쉼표는 **3자리 자릿점만** 수 내부로 본다(제41항 "자릿점").
 # {2,4,6} 같은 나열 쉼표를 자릿점 ⠂로 삼키던 버그 정정(2026-07-19, 규정 집합 예시
 # ,a337#b"#d"#f7 — 나열 쉼표는 문장부호 ⠐·다음 수에 수표 재삽입).
@@ -703,7 +705,10 @@ def caps_phrase_cells(cells: str, src: str = "") -> str:
 #   ⚠ 첨자 없는 대문자 낱말(`HIV` · `CPU` · `SNS`)은 원소로도 끊기지만 약어라 건드리지 않는다.
 def element_formula(src: str) -> bool:
     # 식 전체 구절표가 이미 선 구간(⠠⠠⠠…⠠⠄, 안 글자는 소문자)은 빼고 나머지를 본다(T36).
-    t = re.sub(r"⠠⠠⠠.*?⠠⠄", " ", re.sub(r"\\mathrm|\\text|\\rm|[{}$ ]", "", src or ""))
+    # 명령(`\\rightarrow` 등)은 빈칸을 지우기 **전에** 구분자로 바꾼다 — 거꾸로 하면 `\\rightarrow ZnSO` 가 `\\rightarrowZnSO` 로
+    #   붙어 명령 지우기가 뒤 원소까지 먹었다(B-20 #1879, 과학 제18항 예 `H₂SO₄ + Zn → ZnSO₄ + H₂↑` 의 `,zn,s,o` 가 `,zn,,so`).
+    t = re.sub(r"\\(?:mathrm|text|rm)(?![a-zA-Z])", "", src or "")
+    t = re.sub(r"⠠⠠⠠.*?⠠⠄", " ", re.sub(r"[{}$ ]", "", re.sub(r"\\[a-zA-Z]+", "|", t)))
     # 화학 신호: 첨자 숫자·이온 부호, 또는 **대문자+소문자 원소**(`HCl`·`NaCl` — 제7항 1호 `,na,cl`).
     #   반응식이 조각으로 갈리면 `+HCl` 처럼 첨자 없는 화학식이 대문자 단어표(⠠⠠⠓⠉⠇)로 나갔다(T36).
     two = [w for w in re.findall(r"[A-Z][a-z]", t) if w in _ELEMENTS]
@@ -715,7 +720,7 @@ def element_formula(src: str) -> bool:
     runs = re.findall(r"[A-Za-z]+", body)
     return (bool(runs) and any(re.search(r"[A-Z]{2}", r) for r in runs)
             and all(all(e in _ELEMENTS for e in re.findall(r"[A-Z][a-z]?|[a-z]", r)) for r in runs)
-            and not caps_phrase_run(src))
+            and not caps_phrase_run(re.sub(r"⠠⠠⠠.*?⠠⠄", " ", src or "")))   # 구절표 밖 몫만 본다(#1879)
 
 
 def element_caps_cells(cells: str, src: str) -> str:
@@ -1408,9 +1413,11 @@ def _normalize_latex_input(latex: str) -> str:
     # 행렬(제26항): 8 0 묶고 행 사이 개행 기호 >(⠜) 앞뒤 한 칸. 행렬식(vmatrix)은 \ \.
     def _mat_repl(m: re.Match) -> str:
         kind, body = m.group(1), m.group(2)
-        rows = [" ".join(r.replace("&", " ").split())
+        # 성분 사이 · 개행 기호 앞뒤는 구조 빈칸(_SP)이다(B-20 · 제26항 3660~3666행 `A;#a#a`A;#a#b`). 맨 빈칸이면 첨자 성분
+        #   (`a_{11} a_{12}`)을 곱으로 읽어 빈칸을 지우고 구분점 ⠐ 을 넣었다(`a;#aa"a;#ab`).
+        rows = [_SP.join(r.replace("&", " ").split())
                 for r in body.split("\\\\") if r.strip()]
-        inner = " ⠜ ".join(rows)
+        inner = (_SP + "⠜" + _SP).join(rows)
         if kind == "v":
             return f"⠳{inner}⠳"
         if kind == "b":
@@ -1483,6 +1490,9 @@ def _normalize_latex_input(latex: str) -> str:
     #   `⠁⠰⠼⠁⠐⠀⠁⠰⠼⠃⠐⠀⠁⠰⠼⠉⠐⠀⠠⠠⠠`. 종전엔 마침표 셋 ⠲⠲⠲ 로 나갔다(원장 B-62 · #1758, gold 수식 쉼표 뒤 ⠠⠠⠠ 297 : ⠲⠲⠲ 9).
     s = re.sub(r"(?<!\.)\.{3}(?!\.)", "⋯", s)
     s = re.sub(r"[⋯…](?:\s*[⋯…])+", "⋯", s)
+    # 줄임표 뒤 원문자 번호(식 번호 · 조건 번호)는 줄임표 앞뒤를 한 칸씩 띄운다 — 「수학 점자」 제6항 예(재추출 3104~3109행)
+    #   `b(x−1)(1≤x≤2)⋯②` = `b8x9#a0`8#a66x66#b0`,,,`#2`(묵자는 붙였다). gold 줄임표 + 번호 앞 한 칸 484 : 붙음 1(B-20).
+    s = re.sub(r"\s*⋯\s*(?=[①-⑳㉠-㉻])", " ⋯ ", s)
     s = _MULTISPACE_RE.sub(" ", s)
     s = s.strip()
     # 식 끝에 매달린 합성 ∘: 이항 연산자인데 우변이 없으면 문법적 불능 — MinerU가
@@ -2180,10 +2190,38 @@ def _stage8_superscript(result: str) -> str:
         #   줄였다. 규정이 명확한 자리라 빈도로 뒤집을 수 없고, 그 판정은 변수 m(`3m^{2}`, 수학 Ⅰ
         #   p0095)까지 단위로 잡았다. 2026-10-11 걷어냈다(#1321).
         exp  = convert_latex(raw_exp)
-        exp_w = _wrap_ins(exp) if _needs_wrap_out(raw_exp, exp) else exp
+        # 지수 안에 아래첨자가 든 꼴(`2^{\\aleph_{0}}`)도 곱이라 묶는다(B-20 · #1844). 「한국 점자 규정」 수학 제65항 4호 예(재추출
+        #   4280~4282행) `c=2^{ℵ₀}` = `c33#b^(rf;#j)` · 제7항 [붙임] 지수가 곱이면 묶음 괄호.
+        #   원장 M-21: 규정서 전 쪽에서 지수 안 아래첨자 예는 이 하나뿐이고 2027 수학Ⅰ gold 는 괄호 없이 적는다(7 : 0).
+        #   대표 결정 P-23(2026-11-27) 「규정대로」 로 괄호를 둔다.
+        nested = re.search(r"[A-Za-z0-9}]_", raw_exp) is not None
+        # 부호만 든 위첨자(`A^{++}` 등급 · 이온)는 묶지 않는다(B-20 · #1847). 제68항 예(재추출 2652~2653행) `A⁺⁺` = `0,a^55`.
+        signs_only = re.fullmatch(r"\s*[+\-−]+\s*", raw_exp or "") is not None
+        exp_w = exp if signs_only else _wrap_ins(exp) if nested or _needs_wrap_out(raw_exp, exp) else exp
         return f"{base}{_SUPERSCRIPT_IND}{exp_w}"
 
     return _SUP_RE.sub(_sup_replace, result)
+
+
+# ★ 행렬 성분 첨자(B-20 · #1844). 「한국 점자 규정」 수학 제26항(재추출 3660~3674행) 예 `a₁₁ a₁₂ …` = `A;#a#a`A;#a#b` · 행렬식 전개
+#   `=a₁₁a₂₂−a₁₂a₂₁` = `33a;#a#a"a;#b#b9a;#a#b"a;#b#a` — 두 자리 숫자 첨자는 행 · 열 번호라 숫자마다 수표를 적는다.
+#   행렬이 든 식 안에서만 그렇게 읽는다(행렬 밖 `a_{11}` 은 11째 항일 수 있다).
+# ★ 원장 R-108(B-20 · #1857) — 대문자 곱은 대문자표를 글자마다 적는다. 「한국 점자 규정」 수학 제12항 [붙임 2](재추출 3330~3338행)
+#   "두 개 이상의 로마자 곱은 수학적 표기에 따른다", 예 `행렬 A와 B에 대하여 AB의 값` = `,A,B`. 이름(선분 · 점 `AB`, 제35항
+#   `⠈⠉⠠⠠⠁⠃`)은 대문자 단어표라 글자로는 안 갈린다 — 곱이 분명한 자리에만 곱 경계 표지를 넣어 14단계 단어표 묶기를 끊는다
+#   (대표 결정 2026-11-26 pm 16:02, 결정요청 2). ① 로그 진수 괄호 안 대문자(`log_a(MN)` — 2027 정답 수학Ⅰ 본책 8 · 9쪽 `_;a8,m,n0`,
+#   `⠠x⠠y` 37곳) ② 같은 글에서 따로 수식으로 나온 글자들이 붙어 나온 꼴(`translator._mark_capital_products`). 표지는 끝에서 걷는다.
+PRODUCT_SEP = "\x1d"
+# 과학 점자 제18항 3.(재추출 4834~4835행) — 화학 반응식에서 구별된 글자체(상태 표시 aq · s · l · g)를 두른 괄호는 한글 소괄호
+#   ⠦⠄ ⠠⠴ 로 적고, 안의 로마자는 로마자표 ⠴ 를 앞세운다. 예 `2S(s) + 3O₂(g) → 2SO₃(g)` = `#b,s8'0s,0`5`#c,o;#b8'0g,0`3o`
+#   (4836~4838행) · `H₂CO₃(aq) …` = `,,,h;#b"co;#c8'0aq,0`(4839~4843행). 대문자 구절표의 효력은 괄호를 건너 이어진다.
+#   종전에는 수식 괄호 ⠦ ⠴ 로 나갔다(B-20 #1877). 화학식 판정(`_looks_chemical`)이 선 식에서만 `\\stateaq{}` 꼴 명령으로 바꾸고,
+#   명령표(`_LATEX_SIMPLE`)가 셀로 낸다(`\\capsep` 과 같은 길 — 제어 문자 자리표시는 빈칸으로 걷혀 못 쓴다).
+_STATE_PAREN_RE = re.compile(r"\\?\((aq|s|l|g)\\?\)")
+_LOG_CAP_PRODUCT_RE = re.compile(r"(\\log\s*(?:_\{[^{}]*\}|_\w)?\s*\(\s*)([A-Z]{2,4})(\s*\))")
+_MATRIX_CTX: contextvars.ContextVar = contextvars.ContextVar("_MATRIX_CTX", default=False)
+_MATRIX_ENV_RE = re.compile(r"\\begin\{[pbv]matrix\}")
+_DIGIT_CELL = dict(zip("0123456789", "⠚⠁⠃⠉⠙⠑⠋⠛⠓⠊"))
 
 
 def _stage9_subscript(result: str) -> str:
@@ -2202,13 +2240,17 @@ def _stage9_subscript(result: str) -> str:
         #     x⠰⠼⠁ = x₁ · a⠰⠼⠃ = a₂ (수학1 p28)   ⠉⠕⠰⠼⠃ = CO₂ · ⠠⠓⠰⠼⠃ = H₂ (생물 p19)
         #   규정 제19항 1호와 같은 형식이고 수학·화학 양쪽에서 일관된다 → 규정형으로 낸다.
         #   (내린 숫자 `_DROPPED_DIGIT`는 로그 밑 제46항 전용으로 남는다.)
+        if _MATRIX_CTX.get() and re.fullmatch(r"\d\d", sub_raw):
+            return f"{base}{_SUBSCRIPT_IND}" + "".join(_NUM_SIGN + _DIGIT_CELL[d] for d in sub_raw)
         sub  = convert_latex(sub_raw)
         # lim 범위는 ⠰ 뒤에 묶지 않고 적는다(제51항, 재추출 3908 · 3918행 `LIM;X`3o`=`F8X0`). 3단계 `_LIM_RE` 가
         #   못 잡은 꼴(화살표를 잃은 MinerU 출력 `x  1 -`)이 여기로 온다 — 곱으로 세어 묶었다(#1437). `\longrightarrow` 은
         #   이제 3단계가 받는다(`_LIM_ARROW`).
         if base == "m" and m.string[:m.start()].endswith("\\li"):
             return f"{base}{_SUBSCRIPT_IND}{sub}"
-        sub_w = _wrap_ins(sub) if _needs_wrap_out(sub_raw, sub) else sub
+        # 첨자 안에 첨자가 든 꼴(`O_{2}`)도 곱이라 묶는다. 「한국 점자 규정」 수학 제19항 1호 [붙임](재추출 3573행) "아래첨자가 분수, 곱, 다항식 등일 때에는 묶음 괄호로 묶어 적는다" · 과학 제28항(4982~4985행) `Q_{O}₂` = `,q;(,o;#b)`.
+        nested = re.search(r"[A-Za-z0-9}]_", sub_raw) is not None
+        sub_w = _wrap_ins(sub) if nested or _needs_wrap_out(sub_raw, sub) else sub
         return f"{base}{_SUBSCRIPT_IND}{sub_w}"
 
     return _SUB_RE.sub(_sub_replace, result)
@@ -2238,6 +2280,11 @@ _LATEX_SIMPLE: dict[str, str] = {
     # 규정 정답쌍 312건 전수 검사에서 드러났다.
     "\\cong":     "⠈⠔⠒⠒",   # ≅ 물결아래등호 (제32항 @933)
     "\\underlinemark": "⠠⠤",  # 밑줄표 (제23항 2호 `,-`)
+    "\\stateaq":  "⠦⠄⠴⠁⠟⠠⠴",  # 화학 상태 표시 (aq) — 과학 제18항 3(4834~4843행) 한글 소괄호 + 로마자표(#1877)
+    "\\states":   "⠦⠄⠴⠎⠠⠴",    # (s)
+    "\\statel":   "⠦⠄⠴⠇⠠⠴",    # (l)
+    "\\stateg":   "⠦⠄⠴⠛⠠⠴",    # (g)
+    "\\capsep":   PRODUCT_SEP,  # 곱 경계(원장 R-108) — 14단계 대문자 단어표 묶기를 끊고 끝에서 걷는다
     "\\simeq":    "⠈⠔⠒",    # ≃ 물결 아래 한 줄 (제31항 @93)
     "\\approxeq": "⠈⠔⠈⠔⠒",  # ≊ 이중물결 아래 한 줄 (제30항 @9@93)
     "\\nsim":     "⠨⠈⠔",    # ≁ 관계 부정 (제34항 .@9)
@@ -2671,7 +2718,7 @@ def _stage0f_brace_comma(latex: str) -> str:
     # `\|x\|` 가 `⠳⠭⠳⠳` 로 나간다(닫는 쪽만 노름이 된다).
     latex = _NORM_RE.sub("‖", latex)
     # 밑줄(제23항 2호) — `밑줄( )은 ,-으로 적는다`. 본문 **뒤에** ⠠⠤ 를 붙인다.
-    latex = _UNDERLINE_RE.sub(r"\1\\underlinemark ", latex)
+    latex = _UNDERLINE_RE.sub(r"\1\\underlinemark{}", latex)   # 빈 묶음으로 명령을 끊는다(빈칸으로 끊으면 셀로 샜다, B-20)
     return _BRACE_COMMA_RE.sub(",", latex)
 
 
@@ -2798,7 +2845,14 @@ def convert_latex(latex: str) -> str:
     ⚠ 각 단계의 하위 내용 변환은 convert_latex를 **재귀 호출**한다(분수 분자·근호 안 등).
       재귀분은 전 파이프라인을 다 통과해 이미 완성 점자로 되돌아온다.
     """
+    if not _MATRIX_CTX.get() and _MATRIX_ENV_RE.search(latex or ""):
+        token = _MATRIX_CTX.set(True)          # 행렬이 든 식 — 두 자리 숫자 첨자는 행 · 열 번호다(아래 `_sub_replace`)
+        try:
+            return convert_latex(latex)
+        finally:
+            _MATRIX_CTX.reset(token)
     latex = latex.translate(_UNI_SPACE_TABLE)
+    latex = _LOG_CAP_PRODUCT_RE.sub(lambda m: m.group(1) + PRODUCT_SEP.join(m.group(2)) + m.group(3), latex)
     # 0-전: MinerU 오독 복원 — _protect_text가 \text 내용을 격리하기 **전에** 고쳐야
     # 훅이 옳은 한글을 점역한다(2026-07-22. 王亡·且="또는" 자형 오독, gold 대조 확정 —
     # 수학2 p009·p010·p144. 수식 경로 한정이라 진짜 한문이 섞일 여지가 없다).
@@ -2816,6 +2870,8 @@ def convert_latex(latex: str) -> str:
     _bonds = bond_chain(latex)                  # 0-전a: 사슬 화합물 결합선(제10항, T36 ②-b)
     if _bonds:
         latex = _bonds
+    if _is_chem:                                # 0-전a2: 상태 표시 (aq)(s)(l)(g) 는 한글 소괄호(과학 제18항 3, #1877)
+        latex = _STATE_PAREN_RE.sub(lambda m: "\\state" + m.group(1) + "{}", latex)
     if _is_chem or _bonds or _formula_like(latex):  # 0-전b: 식 전체 구절표(제4항, T36 ②-b)
         latex, _chem_phrased = mark_chem_phrases(latex)
     latex, _text_store = _protect_text(latex)   # 0.  P2: \text{한글} → 한글 점자 sentinel
@@ -2894,7 +2950,10 @@ def convert_latex(latex: str) -> str:
                 result = _ROMAN_OPEN + result
             if not result.endswith(_ROMAN_CLOSE):
                 result = result + _ROMAN_CLOSE
-    return result
+    # 윗줄 친 지표 뒤 소수는 같은 수다(B-20 · #1844). 「한국 점자 규정」 수학 제11항 예(재추출 3251~3252행) `2̄.3010` = `#b@c4cjaj`.
+    #   소수점 · 소수 자리에서 수가 끊긴 것으로 보고 수표를 다시 적어 `#b@c#4cjaj` 로 나갔다.
+    result = re.sub(r"(⠼[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚]+⠈⠉)⠼?⠲⠼?(?=[⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚])", r"\1⠲", result)
+    return result.replace(PRODUCT_SEP, "")
 
 # ── 수식 구조 → rule_id (rule_trail emit용, Phase B) ────────────────────────
 # 항→장→MCST-수학-{장}.{항}. 규정 원문 + 장 경계로 검증(환각 0). 모두 regulations.json 실재.

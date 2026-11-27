@@ -526,17 +526,18 @@ def _render_grid(corrected_text: str) -> list[str]:
     #   3장 2절 1)(1)③ 1770~1772행 "행 제목과 항목 사이는 쌍점 "1으로 구분한다" · 1773~1774행 [다만]
     #   "구분이 명확하게 되는 단순한 표의 경우에는 쌍점을 적지 않고 두 칸씩 띄어 적을 수 있다".
     #   행 제목 뒤는 **쌍점이 기본이고 두 칸이 허용**이다(#1834 로 바로잡음. 종전 주석의 "쌍점은 표 절
-    #   어디에도 없다"는 원문과 달랐다). 제작 지침만 있는 자리라 판정표상 관행을 따르는데, 관행이 책마다
-    #   갈린다(원장 C-140). 늘 쌍점(아래 스위치)은 E-40 에서 dev −1,068칸 · val +191칸(016 혼자 +255)이라
-    #   채택하지 않았다. 지금 판정은 `_sep_word_level`(칸 중앙값 ≤14 면 두 칸)이고 규정 모드는 늘 두 칸이다.
-    #   gold 행 머리 뒤 표기 대조(동결 코퍼스): 늘 쌍점 dev 21.2%·val 26.0% →
-    #   `_sep_word_level` dev 81.2%·val 71.5%.
-    #   되돌리는 길: TABLE_GRID_SEP=colon — 스위치는 **호출 시** 읽는다(모듈 상수로 굳히면
-    #   A/B 의 끄기 팔이 임포트 시점에 박혀 안 꺼진다).
-    if os.environ.get("TABLE_GRID_SEP") == "colon":
-        sep = _COLON
-    else:
+    #   어디에도 없다"는 원문과 달랐다).
+    # ★ #1840 — 대표 결정 P-17(2026-11-26, 원장 C-140): 행 제목 뒤를 지침 기본대로 **늘 쌍점**으로 낸다.
+    #   「dev · val 양쪽 순감」 채택 기준의 예외로, 규정 우선 원칙에 따른 대표 결정이다. E-40 T1(같은 동작)
+    #   dev −1,068칸(156:71) · val +191칸(37:61), val 손해는 016 혼자 +255칸(016 은 행 제목 줄 · 값 줄 꼴,
+    #   책 설정 후보 · 원장 「책 관행 묶음 · 016」). 규정 모드도 같다(지침 기본).
+    #   되돌리는 길: TABLE_GRID_SEP=auto — 종전 판정 `_sep_word_level`(칸 중앙값 ≤14 면 두 칸, 규정 모드는
+    #   늘 두 칸). 2026-07 구판 동결 코퍼스 대조는 그 판정이 dev 81.2% · val 71.5% 였다.
+    #   스위치는 **호출 시** 읽는다(모듈 상수로 굳히면 A/B 의 끄기 팔이 임포트 시점에 박혀 안 꺼진다).
+    if os.environ.get("TABLE_GRID_SEP", "colon") == "auto":
         sep = "⠀⠀" if _sep_word_level(grid) else _COLON
+    else:
+        sep = _COLON
     head_row = len(rows) > 1 and _has_col_headers([c.strip() for c in rows[0].split("|")])
     body_rows = src[1:] if head_row else src
     vbar = any(_is_sentence(c) for r in body_rows for c in r[1:])

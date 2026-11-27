@@ -93,6 +93,7 @@ _ABS_PAIR_RE = re.compile(
     r"\|[^|가-힣\s](?:[^|가-힣]*[^|가-힣\s])?\|"
 )
 _LETTER_RE = re.compile(r"[A-Za-zαβγδεζηθικλμνξπρστυφχψωΑΒΓΔΘΛΞΠΣΦΨΩ]")
+_UNIT_GLOSS_RE = re.compile(r"\([A-Za-z]{1,4}\)")   # 한글 낱말에 붙은 단위 · 유전자형 괄호 `(m)` `(kg)` `(Aa)` (#941 한글 사이 연산)
 _BIN_OPS = "+-−×÷=<>≤≥≠"   # 두 피연산자 사이에 서는 연산·비교 기호(#941)
 
 
@@ -326,9 +327,20 @@ def _wrap_tokens(seg: str) -> str:
         src = m.string
         before = src[:m.start()].rstrip()[-1:]
         after = src[m.end():].lstrip()[:1]
-        if not _LETTER_RE.search(core) and (
-                (core[0] in _BIN_OPS and "가" <= before <= "힣")
-                or (core[-1] in _BIN_OPS and "가" <= after <= "힣")):
+        # 한글 낱말에 붙은 단위 괄호(`신장(m) × 신장(m)` 의 `(m)`)는 낱말의 일부다 — 떼고 본다. 같은 조항 예(재추출 2071행)
+        #   `(신장(m) × 신장(m))` = `8',q.78'0m,0`*`,q.78'0m,0,0`(글 괄호 · × 앞뒤 한 칸). 감싸면 `(m) ×` 가 수식이 돼
+        #   수식 괄호 ⠦m⠴ 에 앞뒤 두 칸이 붙었다(B-20). 유전자형(`남자(Aa) × 2`)도 같다 — 2027 생명과학 정답은 글 괄호 + 로마자표
+        #   꼴 7곳 · 수식 괄호 꼴 0이다.
+        gloss = _UNIT_GLOSS_RE.match(span) if not head and "가" <= src[:m.start()][-1:] <= "힣" else None
+        bare = core[gloss.end():].lstrip() if gloss else core
+        if bare and not _LETTER_RE.search(bare) and (
+                (bare[0] in _BIN_OPS and "가" <= before <= "힣")
+                or (bare[-1] in _BIN_OPS and "가" <= after <= "힣")):
+            return span
+        # ★ B-20(#1847) — 숫자에 + · − 첨자만 붙고 한글이 이어지는 꼴(`1⁺⁺등급` · `A⁻ 학점` 의 등급 표시)은 수식이 아니다.
+        #   「한국 점자 규정」 제68항 [붙임 2](재추출 2669~2675행) "+나 -가 첨자일 때에는 그 뒤를 한 칸 띄어 쓴다",
+        #   예 `1⁺⁺등급, 1⁺등급` = `#a^55`i{7@{b"`#a^5`i{7`. 감싸면 수식 앞뒤 두 칸(제12항)이 붙었다. 글 길이 낸다.
+        if re.fullmatch(r"\d+[⁺⁻]+", core) and "가" <= after <= "힣":
             return span
         # 2자 토큰은 아래첨자·이온 전하를 지닌 것과 홑 유전자형(`Xᴬ` · `Iᴮ`, B-22)만 허용(O₂·t₂·H⁺). 그 밖은 3자 임계 유지.
         if len(core) < 3 and not (_SUB_CHARS.search(core) or _ION_CHARS.search(core) or is_genotype(core)):

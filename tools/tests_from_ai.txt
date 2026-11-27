@@ -299,3 +299,15 @@ test/unit_test/braille/test_long_arrow_1780.py
 test/unit_test/braille/test_formula_unicode_space_1783.py
 # AI #1799 (3.4.50): test_box_style_marker_1795.py 는 app.schemas.layout(BBoxItem · LayoutResult)을 써서 옮기지 않는다.
 #   같은 꼴은 test/test_sidecar.py 의 box_style 시험이 본다(표지 셀열 · 3칸 · 빈 줄 없음 · 새지 않음 · BAD_FIELD)
+# AI c203b544..3c242af0 (3.4.53). 홀드아웃 gold 창 0(tools/corpus/scan_holdout_braille.py)
+# 뺀 것: test_guideline_pairs(test_data 의 지침 짝을 읽는다) · test_caption_language_drift_1907(app.ai.captioning 을 부른다)
+test/unit_test/braille/test_art39_korean_run_1861.py
+test/unit_test/braille/test_box_hug_b21.py
+test/unit_test/braille/test_chem_state_paren_1877.py
+test/unit_test/braille/test_grid_table_blanks_1889.py
+test/unit_test/braille/test_leader_label_spacing_1898.py
+test/unit_test/braille/test_paren_label_formula_1881.py
+test/unit_test/braille/test_times_before_digit_1887.py
+test/unit_test/braille/test_tone_marks_1896.py
+test/unit_test/braille/test_unit_gloss_times_1894.py
+test/unit_test/braille/test_vertical_bar_r78.py
