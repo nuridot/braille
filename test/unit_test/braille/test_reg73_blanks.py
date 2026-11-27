@@ -70,3 +70,17 @@ def test_한_줄에_밑줄과_네모가_같이_와도_갈라진다():
     assert RULE in out and SQUARE in out, out
     # 네모가 밑줄 자리를 먹지 않는다 — 둘 다 제 횟수대로 나온다
     assert out.count(SQUARE) == 1, out
+
+
+# ── 태그 없이 □ 글자로 온 네모 빈칸 (원장 C-213, B-20 #1861) ─────
+@pytest.mark.parametrize("text", ["다음 □ 안에 알맞은 수를 써넣어 보자.", "□에 들어갈 말은?"])
+def test_발문의_네모_글자는_네모_빈칸이다(text):
+    """「점자 자료 제작 지침」 2장 4절 6 예(재추출 1038~1039행) `다음 □ 안에 알맞은 수를 써넣어 보자.` = `i<[5`_8`0l`<3n …`."""
+    assert SQUARE in _br(text), _br(text)
+
+
+@pytest.mark.parametrize("text", ["종 A(□)", "□의 넓이"])
+def test_발문_밖의_네모_글자는_빠짐표다(text):
+    """제49항 빠짐표 □ = `_7l`(문장 부호표 2213행 점형 · 2217행 이름). 채워 넣으라는 말이 없으면 그대로다."""
+    out = _br(text)
+    assert SQUARE not in out and "⠸⠶⠇" in out, out

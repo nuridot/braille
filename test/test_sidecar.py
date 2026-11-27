@@ -48,11 +48,13 @@ def test_cells_에_이_요소_몫의_앞뒤_빈_줄이_든다():
     """앱 조립(`compose_editor`)은 블록의 `braille` 을 줄로 쪼개 그대로 쪽에 낸다(끝 개행 하나만 종결자로 버린다). 빈 줄을 따로
     안 넣으므로 제목 · 표 · 시각 자료 둘레 빈 줄이 앱 화면과 BRF 에서 통째로 빠졌다(016 세계지리 48쪽 356줄). 서버
     `flatten_elements` 가 이 요소 몫으로 붙이는 앞 · 뒤 빈 줄을 `cells` 에 싣는다 — 앞은 개행 그대로, 뒤는 종결자 하나를 더."""
-    for text, etype, level in (("1 국어의 탐구와 활용", "title", 2), ("그림 설명이다.", "image", 0)):
+    for text, etype, level in (("1 국어의 탐구와 활용", "title", 2),):
         on = sidecar.translate(text, etype, level)
         off = sidecar.translate(text, etype, level, blank_lines=False)
         assert on["cells"] == "\n" + off["cells"] + "\n\n"                      # 앞 한 줄 · 뒤 한 줄
         assert on["breaks"] == [b + 1 for b in off["breaks"]]                     # 자리는 통 문자열 그대로
+    # 시각 자료는 3.4.53 부터 둘레 빈 줄이 없다(AI #1885, 원장 C-219). 되돌리기 VISUAL_BLANKS=1
+    assert sidecar.translate("그림 설명이다.", "image") == sidecar.translate("그림 설명이다.", "image", blank_lines=False)
     body = sidecar.translate("봄이 오면 꽃이 핀다.")
     assert body == sidecar.translate("봄이 오면 꽃이 핀다.", blank_lines=False)   # 빈 줄 요구가 없는 글은 종전 그대로
     assert "\n" not in body["cells"]
@@ -701,24 +703,29 @@ def _이어붙임(els, page=True):
                                      e.get("heading_level") or 0)["cells"] for e in els)
 
 
-def test_쪽_창구는_겹치는_빈_줄을_합친다():
+def test_쪽_창구는_겹치는_빈_줄을_합친다(monkeypatch):
     """E1(앱 2026-11-01 · 대표 지시). 요소를 하나씩 받으면 앞 요소 뒤 빈 줄과 이 요소 앞 빈 줄이 둘 다 들어간다.
 
     쪽을 통째로 받는 `translate_page` 는 서버 조판(`flatten_elements`)을 한 번 지나므로 그 겹침이 합쳐진다.
     기대값은 `docs/sidecar.md` 4-1 절 실측 표와 같은 수다.
     """
     제목 = {"id": "e1", "text": "1 국어의 탐구와 활용", "type": "title", "heading_level": 2}
+    monkeypatch.delenv("VISUAL_BLANKS", raising=False)
     for 뒤, 쪽, 하나씩 in (({"id": "e2", "text": _표_간단(), "type": "table"}, 6, 7),
-                          ({"id": "e2", "text": "그림 설명이다.", "type": "image"}, 5, 6)):
+                          ({"id": "e2", "text": "그림 설명이다.", "type": "image"}, 3, 3)):   # 그림은 빈 줄 없음(C-219)
         els = [제목, 뒤]
         assert _이어붙임(els).count("\n") == 쪽, 뒤["type"]
         assert _이어붙임(els, page=False).count("\n") == 하나씩, 뒤["type"]
 
 
-def test_쪽_창구는_잇단_시각_자료_사이를_안_띄운다():
-    """「점자 도서 제작 지침」 3장 2절 1 2) 다만. 요소 하나만 보면 알 수 없는 판정이다."""
+def test_쪽_창구는_잇단_시각_자료_사이를_안_띄운다(monkeypatch):
+    """「점자 도서 제작 지침」 3장 2절 1 2) 다만. 요소 하나만 보면 알 수 없는 판정이다.
+    3.4.53 부터 시각 자료는 둘레 빈 줄 자체가 없어(원장 C-219) 이 판정은 되돌리기 VISUAL_BLANKS=1 에서 본다."""
     els = [{"id": "e1", "text": "그림 설명이다.", "type": "image"},
            {"id": "e2", "text": "또 그림이다.", "type": "image"}]
+    monkeypatch.delenv("VISUAL_BLANKS", raising=False)
+    assert _이어붙임(els).count("\n") == _이어붙임(els, page=False).count("\n") == 0
+    monkeypatch.setenv("VISUAL_BLANKS", "1")
     assert _이어붙임(els).count("\n") == 3          # 둘 사이에 빈 줄이 없다
     assert _이어붙임(els, page=False).count("\n") == 6
     # 빈 줄 요구가 없는 글 요소끼리는 두 길이 같다 — 합칠 빈 줄이 없다

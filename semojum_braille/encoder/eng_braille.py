@@ -363,9 +363,12 @@ _NAME_CASE_RE = re.compile(r"[A-Z][a-z]+(?:[A-Z][a-z]{2,})+")
 
 
 def _is_element_seq(word: str) -> bool:
-    """낱말 전체가 원소 기호(대문자 + 소문자 0~1자)의 이음인가 — HCl·NaCl 은 예, ABd·SDGs 는 아니오."""
+    """낱말 전체가 원소 기호(대문자 + 소문자 0~1자)의 이음인가 — HCl·NaCl 은 예, ABd·SDGs 는 아니오.
+    대문자 약어 복수(`CFCs` · `PCs`)는 끝 `Cs` 가 세슘과 같은 꼴이어도 약어다(#1900). 통일영어점자 8.6.3
+    (규정서 3789행 `ABCs ,,abc,'s` · 3843행 `CDs ,,cd,'s`)대로 대문자 단어표 + 종료표로 적는다."""
     from semojum_braille.encoder.kor_math_rules import _ELEMENTS   # 순환 import 회피(지연)
-    return bool(word) and all(t in _ELEMENTS for t in re.findall(r"[A-Z][a-z]?|.", word))
+    return bool(word) and not re.fullmatch(r"[A-Z]{2,}s", word) and all(
+        t in _ELEMENTS for t in re.findall(r"[A-Z][a-z]?|.", word))
 
 
 def _is_abbrev(word: str) -> bool:

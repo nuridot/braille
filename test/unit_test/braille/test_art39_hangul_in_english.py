@@ -33,3 +33,13 @@ def test_제39항_예문_3_머리_로마자표만_다르다():
 ])
 def test_제39항_아닌_줄(src):
     assert not _english_sentence_with_hangul(src)
+
+
+def test_짧은_영어_문장과_따옴표로_여는_영어_문장도_한글표로_묶는다():
+    # B-20 #1861 — 「점자 자료 제작 지침」 2.6.2 [예 2-37](재추출 1672~1676행) 꼴. 맨 앞 로마자표는 원장 R-88(종전 유지)
+    from semojum_braille.encoder.translator import translate_body
+    out = "".join(translate_body("I like 김치.")[0])
+    assert "⠸⠷⠈⠕⠢⠰⠕⠸⠾⠲" in out, out    # `_(@o5;o_)` 규정 1897행 + 영어 마침표 `4`(지침 1674행)
+    out = "".join(translate_body("‘김치’ is spicy food.")[0])
+    assert "⠠⠦⠸⠷⠈⠕⠢⠰⠕⠸⠾⠠⠴" in out, out    # 작은따옴표 `,8 … ,0`(지침 1675행)
+    assert "⠸⠷" not in "".join(translate_body("Artificial 잘 조사하였어요.")[0])   # 한국어 맺음으로 끝나면 국어 문장

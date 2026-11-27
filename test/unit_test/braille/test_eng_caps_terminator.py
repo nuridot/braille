@@ -15,6 +15,13 @@ from semojum_braille.encoder import eng_braille
     ("AbD", "⠠⠁⠃⠠⠙"),          # 홑 대문자는 ⠠ 하나
     ("mV", "⠍⠠⠧"),
     ("HCl", "⠠⠓⠠⠉⠇"),         # 원소 기호 이음은 종전대로
+    ("CsCl", "⠠⠉⠎⠠⠉⠇"),       # 세슘으로 시작하는 원소 이음도 종전대로
+    # 통일영어점자 8.6.3 규정서 3789행 `ABCs ,,abc,'s` · 3790행 `WASPs ,,wasp,'s` · 3843행 `CDs ,,cd,'s`
+    ("ABCs", "⠠⠠⠁⠃⠉⠠⠄⠎"),
+    ("CDs", "⠠⠠⠉⠙⠠⠄⠎"),
+    # 같은 조항 꼴인데 끝 `Cs` 가 세슘과 같아 원소 이음으로 읽히던 낱말(#1900)
+    ("CFCs", "⠠⠠⠉⠋⠉⠠⠄⠎"),
+    ("PCs", "⠠⠠⠏⠉⠠⠄⠎"),
 ])
 def test_대문자_연속_뒤_소문자는_종료표로_닫는다(word, gold):
     assert eng_braille.translate(word) == gold

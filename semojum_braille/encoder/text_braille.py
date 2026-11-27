@@ -11,6 +11,7 @@ from semojum_braille.encoder.isolation import safe_translate
 from semojum_braille.encoder.regulations import make_rule_at
 from semojum_braille.encoder.symbol_rules import symbol_rule_spans
 from semojum_braille.encoder.translator import (
+    element_type,
     _BLANK_TAG_RULE,
     blank_marker_spans,
     border_marker_spans,
@@ -68,13 +69,17 @@ def _keep_answer_pairs(line: str, breaks: list[int]) -> list[int]:
 class TextBraille:
     """LLMOutput 목록 → BrailleOutput 목록."""
 
+    def __init__(self, types: dict[str, str] | None = None) -> None:
+        self._types = types or {}           # element_id → 요소 종류(원장 R-78 세로줄은 text · list_item 에서만 남긴다)
+
     def translate(self, optimized: list[LLMOutput]) -> list[BrailleOutput]:
         # 요소별 격리: 한 요소 점역 실패가 같은 체인의 다른 요소를 막지 않는다.
         return safe_translate(optimized, self._translate_one)
 
     def _translate_one(self, opt: LLMOutput) -> BrailleOutput:
         # 논리 줄 + 음절 줄바꿈 offset. 32칸 줄바꿈은 layout이 수행(NLD-1.2.1).
-        lines, breaks = translate_body(opt.corrected_text)
+        with element_type(self._types.get(opt.element_id, "")):
+            lines, breaks = translate_body(opt.corrected_text)
         if len(breaks) == len(lines):
             breaks = [_keep_answer_pairs(ln, br) for ln, br in zip(lines, breaks)]
         # braille_text_list 기준 = 점자. rule_trail은 **점역사가 판단해야 할 자리**만 기록한다
